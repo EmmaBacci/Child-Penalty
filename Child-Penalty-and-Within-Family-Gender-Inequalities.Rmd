@@ -1,0 +1,3009 @@
+---
+title: "Thesis"
+author: "Emma Bacci"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: 
+    toc: yes
+    number_sections: yes
+    latex_engine: xelatex
+    keep_tex: yes
+    toc_depth: 5
+    fig_caption: yes
+  html_document:
+    df_print: paged
+bibliography: references.bib
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = FALSE)
+options(tinytex.verbose = TRUE)
+knitr::opts_chunk$set(fig.width=14, fig.height=10) 
+
+```
+
+Set the libraries and the path
+
+```{r libraries, message=FALSE, warning=FALSE}
+#First we recall some R libraries that will be useful in our analysis.
+library(haven)
+library(ggplot2)
+library(data.table)
+library(dplyr)
+library(readxl)
+library(sf) # simple features' library
+library(spData) # library of spatial data sets
+library(tidyverse) # dplyr, ggplot, .
+library(readr)
+library(gdata)
+library(here)
+library(did)
+library(fixest)
+library(HonestDiD)
+library(MatchIt)
+library(causalTree)
+library(stargazer)
+
+# use e.g., 
+#install.packages("grf") 
+#to install any of the following packages.
+library(grf)
+library(dplyr)
+library(rpart)
+library(glmnet)
+library(splines)
+library(lmtest)
+library(sandwich)
+library(ggplot2)
+library(stringr)
+library(kableExtra)
+# Loading package
+library(caTools)
+library(ROCR)
+
+library("rpart")
+library("htetree")
+library(causalTree)
+
+getwd()
+setwd("C:/yourWD")
+path <- "C:/yourpath"
+
+
+```
+
+# Data Cleaning
+
+Firs we clean out missing values from our dataset.
+
+```{r define main database, message=FALSE, warning=FALSE}
+#original ISTAT dataset:
+tiro23_datie <- read.delim(file.path(path,"/tiro23_datie.txt"))
+#clean from NA -> from database description they are zeros
+data_clean  <- tiro23_datie %>%  replace_na(list(Y_dispo15= 0, Y_dispo16= 0,Y_dispo17= 0,Y_dispo18= 0,
+Y_dispo18= 0,Y_dispo19= 0,Y_dispo20= 0,y_red_tote15= 0, y_red_tote16= 0, y_red_tote17= 0,y_red_tote18= 0,y_red_tote19= 0,y_red_tote20= 0,ye1_lav_dip15= 0,ye1_lav_dip16= 0,ye1_lav_dip17= 0,ye1_lav_dip18= 0,ye1_lav_dip19= 0,ye1_lav_dip20= 0,ye2_red_pen15= 0,ye2_red_pen16= 0,ye2_red_pen17= 0,ye2_red_pen18= 0,ye2_red_pen19= 0,ye2_red_pen20= 0,ye3_lav_aut15= 0,ye3_lav_aut16= 0,ye3_lav_aut17= 0,ye3_lav_aut18= 0,ye3_lav_aut19= 0,ye3_lav_aut20= 0))
+
+#missing values in titostud if the person is young (less then 15 y.o.),substitute with 0
+data_clean$titostud[is.na(data_clean$titostud)] <- 0
+
+rm(list = "tiro23_datie")
+```
+
+Then, we build our main output variable:
+
+`earnings_20xx` = `ye3_lav_autxx + ye1_lav_dipxx`
+
+We also build variables that identifies the type of jobs the parents earn earnings from, the variable `type_20xx_dip`, which is 1 if the parents main source of earnings is dependent work, 0 otherwise in the year 20xx.
+
+We then build dummy variables for the regional division and for the citizenships status of the parents.
+
+```{r create variables, message=FALSE, warning=FALSE}
+#built var reddito da lavoro
+data_clean =data_clean %>% mutate(earnings_2015 =  ye1_lav_dip15 + ye3_lav_aut15, 
+                                                earnings_2016 =  ye1_lav_dip16 + ye3_lav_aut16 ,
+                                                earnings_2017 =  ye1_lav_dip17 + ye3_lav_aut17,
+                                                earnings_2018 =  ye1_lav_dip18 + ye3_lav_aut18,
+                                                earnings_2019 =  ye1_lav_dip19 + ye3_lav_aut19,
+                                                earnings_2020 =  ye1_lav_dip20 + ye3_lav_aut20, 
+type_2020_indip = case_when(ye3_lav_aut20 > ye1_lav_dip20 & (ye3_lav_aut20 > 0 | ye1_lav_dip20>0) ~ 1,
+                      TRUE  ~ 0),
+type_2020_dip = case_when(ye3_lav_aut20 < ye1_lav_dip20 & (ye3_lav_aut20 > 0 | ye1_lav_dip20>0) ~ 1,
+                      TRUE  ~ 0),
+type_2019_indip = case_when(ye3_lav_aut19 > ye1_lav_dip19 & (ye3_lav_aut19 > 0 | ye1_lav_dip19>0) ~ 1,
+                      TRUE  ~ 0),
+type_2019_dip = case_when(ye3_lav_aut19 < ye1_lav_dip19 & (ye3_lav_aut19 > 0 | ye1_lav_dip19>0) ~ 1,
+                      TRUE  ~ 0),
+type_2018_indip = case_when(ye3_lav_aut18 > ye1_lav_dip18 & (ye3_lav_aut18 > 0 | ye1_lav_dip18>0) ~ 1,
+                      TRUE  ~ 0),
+type_2018_dip = case_when(ye3_lav_aut18 < ye1_lav_dip18 & (ye3_lav_aut18 > 0 | ye1_lav_dip18>0) ~ 1,
+                      TRUE  ~ 0),
+type_2017_indip = case_when(ye3_lav_aut17 > ye1_lav_dip17 & (ye3_lav_aut17 > 0 | ye1_lav_dip17>0) ~ 1,
+                      TRUE  ~ 0),
+type_2017_dip = case_when(ye3_lav_aut17 < ye1_lav_dip17 & (ye3_lav_aut17 > 0 | ye1_lav_dip17>0) ~ 1,
+                      TRUE  ~ 0),
+type_2016_indip = case_when(ye3_lav_aut16 > ye1_lav_dip16 & (ye3_lav_aut16 > 0 | ye1_lav_dip16>0) ~ 1,
+                      TRUE  ~ 0),
+type_2016_dip = case_when(ye3_lav_aut16 < ye1_lav_dip16 & (ye3_lav_aut16 > 0 | ye1_lav_dip16>0) ~ 1,
+                      TRUE  ~ 0),
+type_2015_indip = case_when(ye3_lav_aut15 > ye1_lav_dip15 & (ye3_lav_aut15 > 0 | ye1_lav_dip15>0) ~ 1,
+                      TRUE  ~ 0),
+type_2015_dip = case_when(ye3_lav_aut15 < ye1_lav_dip15 & (ye3_lav_aut15 > 0 | ye1_lav_dip15>0) ~ 1,
+                      TRUE  ~ 0),
+citt_it   = case_when (cittad  == 1 ~ 1, 
+                       TRUE ~ 0),
+citt_EU   = case_when (cittad  == 2 ~ 1, 
+                       TRUE ~ 0),
+citt_extra_EU   = case_when (cittad  == 3 ~ 1, 
+                       TRUE ~ 0),
+NorthW  = case_when (ripart4 == 1 ~ 1,
+                       TRUE ~ 0),
+NorthE  = case_when (ripart4 == 2 ~ 1,
+                       TRUE ~ 0),
+Centro  = case_when (ripart4 == 3 ~ 1,
+                       TRUE ~ 0),
+Sud  = case_when (ripart4 == 4 ~ 1,
+                       TRUE ~ 0),
+no_titolo  = case_when (titostud == 1 ~ 1,
+                       TRUE ~ 0),
+elementari  = case_when (titostud == 2 ~ 1,
+                       TRUE ~ 0),
+medie = case_when (titostud == 3 ~ 1,
+                       TRUE ~ 0),
+diploma  = case_when (titostud == 4 | titostud == 5~ 1,
+                       TRUE ~ 0),
+laurea  = case_when (titostud == 6 ~ 1,
+                       TRUE ~ 0))
+
+
+
+#NOTE type = 1 LAV AUT, type = 2 LAV DIP
+
+
+```
+
+Finally, we identify the families with kids in the age 1 to 3 (children born in our available years) to begin to identify our treated sample.
+
+```{r identify families, message=FALSE, warning=FALSE, include=TRUE}
+#isolare le famiglie con figli nati dal 2017 al 2020
+figli <- data_clean %>% filter( eta == 1 | eta == 2 | eta == 3)  %>% select(codfam, eta) 
+#figli_01 <- data_clean %>% filter(eta == 1)  %>%  select(codfam) 
+#figli_02 <- data_clean %>% filter(eta == 2)  %>% select(codfam) 
+#figli_03 <- data_clean %>% filter(eta == 3)  %>%select(codfam) 
+#figli_04 <- data_clean %>% filter(eta == 4)  %>% select(codfam)
+
+codice <- unique(figli) %>% pull(codfam)
+#codice_01 <- unique(figli_01) %>% pull(codfam)
+#codice_02 <- unique(figli_02) %>% pull(codfam)
+#codice_03 <- unique(figli_03) %>% pull(codfam)
+#codice_04 <- unique(figli_04) %>% pull(codfam)
+
+#famiglie con figli dai 0 ai 4 anni
+famiglie <- data_clean  %>%  filter(codfam %in% codice) 
+#famiglie_01 <- data_clean  %>%  filter(codfam %in% codice_01)
+#famiglie_02 <- data_clean  %>%  filter(codfam %in% codice_02)
+#famiglie_03 <- data_clean  %>%  filter(codfam %in% codice_03)
+#famiglie_04 <- data_clean  %>%  filter(codfam %in% codice_04)
+#alcune famiglie un po' strane, con 3 adulti?  Watch out#famiglie con figli dai 0 ai 4 anni
+famiglie <- data_clean  %>%  filter(codfam %in% codice) 
+#famiglie_01 <- data_clean  %>%  filter(codfam %in% codice_01)
+#famiglie_02 <- data_clean  %>%  filter(codfam %in% codice_02)
+#famiglie_03 <- data_clean  %>%  filter(codfam %in% codice_03)
+#famiglie_04 <- data_clean  %>%  filter(codfam %in% codice_04)
+#alcune famiglie un po' strane, con 3 adulti?  Watch out
+```
+
+## Define treated and control units
+
+We need to select our treated units: those families who had a child in our time span and for which we have observations one year before and one year after having that child.
+
+Such families fall in 2 categories:
+
+1.  Families who have only one child between the ages 1-3.
+
+2.  Families who have two children below the age of 3. In this case we have to make sure the first child is born at least two years after the second child, to be able to measure the earnings before and after having the first child without the confounding effect of the second child to alter the results.
+
+    For example:
+
+    | Year | Age of first born | Event Time | Age of second born |
+    |------|-------------------|------------|--------------------|
+    | 2020 | 3                 | t = 4      | 1                  |
+    | 2019 | 2                 | t = 3      | birth year         |
+    | 2018 | 1                 | t = 2      | pregnancy year     |
+    | 2017 | birth year        | t = 1      |                    |
+    | 2016 | pregnancy year    | t = 0      |                    |
+    | 2015 | not born          | t = -1     |                    |
+
+    : If the first-born is 3 years old in 2020(the age recorded in our data)
+
+    So, in this case, if the first born is 3 in 2020, the second born can be at maximum 1 in 2020, to avoid overlapping in the years we need to have pre- and post- event (being pregnant).
+
+In our dataset for now we don't consider families with twins or in general with more then 2 kids.
+
+We also exclude same-sex couples with children and single parents.
+
+We end up with **2547** observations for gender group.
+
+```{r identify treated, message=FALSE, warning=FALSE, include=TRUE}
+#trova famiglie con primogenito nella categoria
+
+
+famiglie_nmembers <- famiglie %>% count(codfam) %>% right_join(famiglie)
+
+only_child <- famiglie_nmembers %>% filter(n==3)
+
+
+#famiglie con figli di 4 anni
+#anni4 <-  famiglie_nmembers %>% filter(eta == 4 & n<= 4) %>% select(codfam)
+#codice_anni4 <- unique(anni4) %>% pull(codfam)
+#anni4_fratelli <- famiglie_nmembers %>% filter(codfam %in% codice_anni4) %>% filter(eta <= 2)%>% select(codfam)
+#codice_fratelli4 <- unique(anni4_fratelli) %>% pull(codfam)
+
+
+anni3 <- famiglie_nmembers %>% filter(eta == 3 & n<= 4) %>% select(codfam)
+codice_anni3 <- unique(anni3) %>% pull(codfam)
+anni3_fratelli <- famiglie_nmembers %>% filter(codfam %in% codice_anni3) %>% filter(eta <= 1) %>% select(codfam)
+codice_fratelli3 <- unique(anni3_fratelli) %>% pull(codfam)
+
+anni2 <-famiglie_nmembers %>% filter(eta == 2 & n<= 4) %>% select(codfam)
+codice_anni2 <- unique(anni2) %>% pull(codfam)
+anni2_fratelli <- famiglie_nmembers %>% filter(codfam %in% codice_anni2) %>% filter(eta <= 0)%>% select(codfam)
+codice_fratelli2 <- unique(anni2_fratelli) %>% pull(codfam)
+
+
+
+famiglie_fratelli <-  famiglie_nmembers %>% filter(codfam %in% codice_fratelli3| codfam %in% codice_fratelli2 )
+#not allowing twins
+
+#famiglie count finale
+families <- rbind(only_child, famiglie_fratelli)
+families_code <- families %>% filter((eta>3 & classeta<3) | classeta>6) %>% select(codfam)
+families_code <- unique(families_code) %>% pull(codfam)
+families_final <- families %>%filter(!codfam %in% families_code)
+
+###GOAL: creat variable event_year
+#create children data se
+children <- families_final  %>% filter(classeta ==1) %>% select(codfam, codind, eta) %>% group_by(codfam) %>% slice(which.max(eta))
+children$birth <- 2020 - children$eta -1
+event <- children %>% select(codfam, birth) 
+
+
+#exclude single parents
+couples <- families_final  %>% filter(classeta > 2) %>% group_by (codfam) %>% summarise(sommasesso = sum(sesso)) %>% filter(sommasesso == 3) %>% select(codfam)
+#NB sommasesso == 3 ensures only heterosexuals couples are selected.
+parents_code <- unique(couples) %>% pull(codfam)
+parents <- families_final  %>%  filter(codfam %in% parents_code)
+
+
+mothers <- parents %>% filter(sesso == 2 & classeta > 2) %>% left_join(event)
+
+fathers <- parents %>% filter(sesso == 1 & classeta >2) %>% left_join(event)
+
+treatment_couples <- rbind(mothers, fathers)
+
+cat("Mothers in treatment group :", nrow(mothers) )
+cat("Fathers in treatment group :", nrow(fathers) )
+
+
+rm(list = setdiff(ls(), c("path", "mothers", "fathers", "families_final", "data_clean", "children", "treatment_couples")))
+ 
+```
+
+Then, we identify our controls: men and women in the same age group (from 25 to 50 y.o.) who don't have children. We take couples, since we plan in later steps to analyse the "family units" effect.
+
+We identify **3550** observations for each gender group.
+
+```{r identify controls, echo=FALSE, message=FALSE, warning=FALSE}
+
+#coppie senza figli
+data <- data_clean  %>% count(codfam) %>% right_join(data_clean)
+no_figli <- data  %>%  filter(n == 2 & classeta %in% (3:5)) %>%  filter(eta <= 50) %>% group_by (codfam) %>% summarise(sommasesso = sum(sesso)) %>% filter(sommasesso == 3) %>% select(codfam)
+#NB sommasesso == 3 ensures only heterosexuals couples are selected.
+no_figli_code <- unique(no_figli) %>% pull(codfam)
+controls_couples <- data  %>%  filter(codfam %in% no_figli_code) 
+
+
+women <- controls_couples %>% filter(sesso == 2)
+women$birth <- 0
+
+men <- controls_couples %>% filter(sesso == 1)
+men$birth <- 0
+
+men_order <- men[order(men$codfam),]
+women_order <- women[order(women$codfam),]
+age_gap = men_order$eta - women_order$eta
+age_gap <- data.frame(cbind(age_gap, women_order$codfam))
+control_couples_1 <- controls_couples %>% left_join(age_gap, by = join_by(codfam == V2))
+control_couples_filter <- control_couples_1 %>% filter(abs(age_gap) <= 18) 
+#eliminate 888 coppie perchè age gap è abbastanza grande da poter esssere padre/figlia o madre/figlio -> assumendo 18 anni come età minima per avere un figlio -> TROVA DIFESA
+women <- control_couples_filter %>% filter(sesso == 2) %>% select(-age_gap)
+women$birth <- 0
+
+men <- control_couples_filter %>% filter(sesso == 1) %>% select(-age_gap)
+men$birth <- 0
+
+rm(no_figli, no_figli_code)
+cat("Men in control group :", nrow(men))
+cat("Women in control group :", nrow(men))
+
+rm(list = "data_clean")
+```
+
+```{r final dataset, echo=FALSE, message=FALSE, warning=FALSE}
+
+fathers = mutate(fathers, treat = 1)
+men = mutate (men, treat = 0)
+men_data <- rbind(fathers, men)
+mothers = mutate(mothers, treat = 1)
+women = mutate(women, treat = 0)
+women_data <- rbind(mothers, women)
+
+
+#need to transform datasets to a panel
+women_data <- women_data %>% pivot_longer(
+    cols = starts_with("earnings_"),
+    names_to = "year",
+    names_prefix = "earnings_",
+    values_to = "earnings"
+  )
+
+#women_data <- women_data[, c("codfam", "codind", "n", "coef", "female", "citt_it","citt_EU","citt_extra_EU", "NorthW","NorthE","Centro","Sud", "classeta", "titostud", "eta", "lav_indip", "lav_dip", "lav_none", "lav_both", "treat", "year", "earnings","birth")]
+
+men_data <- men_data %>% pivot_longer(
+    cols = starts_with("earnings_"),
+    names_to = "year",
+    names_prefix = "earnings_",
+    values_to = "earnings"
+  )
+
+#men_data <- men_data[, c("codfam", "codind", "n", "coef", "female", "citt_it","citt_EU","citt_extra_EU", "NorthW","NorthE","Centro","Sud", "classeta", "titostud", "eta", "lav_indip", "lav_dip", "lav_none", "lav_both", "treat", "year", "earnings","birth")]
+
+
+
+
+```
+
+## Sample relevance in the population
+
+Look at our samples and see if they are representative of the population: how much of the population do the samples represent (using the variable `coef` (coefficiente di riporto all'universo)) and is our data distribution for some relevant covariates a reflection of the distribution of the population?
+
+```{r Rapresentative, echo=FALSE, message=FALSE, warning=FALSE}
+#Representativeness
+women_data_2020 <- women_data %>% filter(year == 2020)
+men_data_2020 <- men_data %>% filter(year == 2020)
+ 
+#individuals
+female_pop_2020 <- 30258341  
+male_pop_2020 <- 28724780  
+
+women_rapresentative <- sum(women_data_2020$coef)/female_pop_2020 *100
+cat("The women in our samples represent :", women_rapresentative, "% of italian women in 2020")
+
+men_rapresentative <- sum(men_data_2020$coef)/male_pop_2020 *100
+cat("The men in our samples represent :", men_rapresentative, "% of italian men in 2020")
+
+#do it for families? 
+families2020<- 25600000
+family_rapresentative <- women_data_2020 %>% group_by(codfam)
+family_rapresentative <- sum(family_rapresentative$coef)/families2020 *100
+cat("The families in our samples represent :", family_rapresentative, "% of italian families in 2020")
+
+```
+
+We observe relatively similar results for our sample distribution on the main covariates compared to the sample distribution for women and men of the same age group.
+
+```{r Balancing women plots, echo=FALSE, message=FALSE, warning=FALSE,fig.show="hold", out.width="30%"}
+
+data_women <- data %>% filter(sesso == 2 & classeta %in% (3:5))
+
+
+par(mfrow=c(3,1))
+ggplot()+
+    geom_bar(data_women, mapping = aes(x=titostud),binwidth=.5, alpha=.5, position = position_stack(reverse = TRUE)) +
+ theme(legend.position = "top")+
+    geom_bar(women_data_2020, mapping= aes(x=titostud, fill=factor(treat)), binwidth=.5, alpha=.5, position = position_stack(reverse = TRUE)) +
+ theme(legend.position = "top")
+
+ggplot() +
+geom_bar(data_women, mapping = aes(x=cittad), binwidth=.5, alpha=.5,  position = position_stack(reverse = TRUE)) +
+ theme(legend.position = "top")+
+geom_bar(women_data_2020, mapping = aes(x=cittad, fill=factor(treat)), binwidth=.5, alpha=.5, position = position_stack(reverse = TRUE)) +
+ theme(legend.position = "top")
+
+ggplot() + 
+geom_bar(data_women,mapping=  aes(x=regione), binwidth=.5, alpha=.5,  position = position_stack(reverse = TRUE)) +
+ theme(legend.position = "top")+
+geom_bar(women_data_2020, mapping= aes(x=regione, fill=factor(treat)),binwidth=.5, alpha=.5, position = position_stack(reverse = TRUE)) +
+ theme(legend.position = "top")
+
+
+summary<- data_women %>% select(titostud, cittad, regione) %>%   summarise_each(funs(min = min, 
+                      q25 = quantile(., 0.25), 
+                      median = median, 
+                      q75 = quantile(., 0.75), 
+                      max = max,
+                      mean = mean, 
+                      sd = sd))%>% gather(stat, val) %>%
+  separate(stat, into = c("var", "stat"), sep = "_") %>%
+  spread(stat, val) %>%
+  select(var, min, q25, median, q75, max, mean, sd)
+
+
+summary_treat<- women_data_2020%>% filter(treat == 1) %>% select(titostud, cittad, regione)%>%   summarise_each(funs(min = min, 
+                      q25 = quantile(., 0.25), 
+                       median =  median, 
+                      q75 = quantile(., 0.75), 
+                      max = max,
+                      mean = mean, 
+                      sd = sd))%>% gather(stat, val) %>%
+  separate(stat, into = c("var", "stat"), sep = "_") %>%
+  spread(stat, val) %>%
+  select(var, min, q25,  median, q75, max, mean, sd)
+
+
+summary_control<- women_data_2020%>% filter(treat == 0) %>% select(titostud, cittad, regione)%>%   summarise_each(funs(min = min, 
+                      q25 = quantile(., 0.25), 
+                       median =  median, 
+                      q75 = quantile(., 0.75), 
+                      max = max,
+                      mean = mean, 
+                      sd = sd))%>% gather(stat, val) %>%
+  separate(stat, into = c("var", "stat"), sep = "_") %>%
+  spread(stat, val) %>%
+  select(var, min, q25,  median, q75, max, mean, sd)
+
+results <- rbind(summary, summary_control, summary_treat)
+results[4,1] <- "cittad_control"
+results[5,1] <- "regione_control"
+results[6,1]<-"titostud_control"
+
+results[7,1] <- "cittad_treatment"
+results[8,1] <- "regione_treatment"
+results[9,1]<-"titostud_treatment"
+
+results<- results[order(results$var),]
+table <- results %>% kable(caption = "Distributions in the female population in 2020 compared to selected women sample in 2020 of relevant demographic variables", booktabs =T ) %>% kable_styling( latex_options = c("striped","hold_position"),
+                                       full_width = T,
+                                       font_size = NULL,
+                                       row_label_position = "l",
+                                       repeat_header_text = "\\textit{(continued)}",
+                                       repeat_header_method = c("append", "replace"),
+                                       repeat_header_continued = FALSE,
+                                       stripe_color = "gray!6",
+                                       stripe_index = NULL,
+                                       latex_table_env = T,
+                                       protect_latex = TRUE,
+                                       table.envir = "table",
+                                       fixed_thead = FALSE,
+                                       htmltable_class = NULL,
+                                       html_font = NULL,
+                                       wraptable_width = "0pt")
+
+table
+```
+
+```{r Balancing men plots, echo=FALSE, message=FALSE, warning=FALSE,fig.show="hold", out.width="30%"}
+data_men <- data %>% filter(sesso == 1 & classeta %in% (3:5))
+
+par(mfrow=c(3,1))
+ggplot()+
+    geom_bar(data_men, mapping = aes(x=titostud),binwidth=.5, alpha=.5, position = position_stack(reverse = TRUE)) +
+ theme(legend.position = "top")+
+    geom_bar(men_data_2020, mapping= aes(x=titostud, fill=factor(treat)), binwidth=.5, alpha=.5, position = position_stack(reverse = TRUE)) +
+ theme(legend.position = "top")
+
+ggplot() +
+geom_bar(data_men, mapping = aes(x=cittad), binwidth=.5, alpha=.5,  position = position_stack(reverse = TRUE)) +
+ theme(legend.position = "top")+
+geom_bar(men_data_2020, mapping = aes(x=cittad, fill=factor(treat)), binwidth=.5, alpha=.5, position = position_stack(reverse = TRUE)) +
+ theme(legend.position = "top")
+
+ggplot() + 
+geom_bar(data_men,mapping=  aes(x=regione), binwidth=.5, alpha=.5,  position = position_stack(reverse = TRUE)) +
+ theme(legend.position = "top")+
+geom_bar(men_data_2020, mapping= aes(x=regione, fill=factor(treat)),binwidth=.5, alpha=.5, position = position_stack(reverse = TRUE)) +
+ theme(legend.position = "top")
+
+
+summary<- data_men %>% select(titostud, cittad, regione) %>%   summarise_each(funs(min = min, 
+                      q25 = quantile(., 0.25), 
+                       median =  median, 
+                      q75 = quantile(., 0.75), 
+                      max = max,
+                      mean = mean, 
+                      sd = sd))%>% gather(stat, val) %>%
+  separate(stat, into = c("var", "stat"), sep = "_") %>%
+  spread(stat, val) %>%
+  select(var, min, q25,  median, q75, max, mean, sd)
+
+
+summary_treat<- men_data_2020%>% filter(treat == 1) %>% select(titostud, cittad, regione)%>%   summarise_each(funs(min = min, 
+                      q25 = quantile(., 0.25), 
+                       median =  median, 
+                      q75 = quantile(., 0.75), 
+                      max = max,
+                      mean = mean, 
+                      sd = sd))%>% gather(stat, val) %>%
+  separate(stat, into = c("var", "stat"), sep = "_") %>%
+  spread(stat, val) %>%
+  select(var, min, q25,  median, q75, max, mean, sd)
+
+
+summary_control<- men_data_2020%>% filter(treat == 0) %>% select(titostud, cittad, regione)%>%   summarise_each(funs(min = min, 
+                      q25 = quantile(., 0.25), 
+                       median =  median, 
+                      q75 = quantile(., 0.75), 
+                      max = max,
+                      mean = mean, 
+                      sd = sd))%>% gather(stat, val) %>%
+  separate(stat, into = c("var", "stat"), sep = "_") %>%
+  spread(stat, val) %>%
+  select(var, min, q25,  median, q75, max, mean, sd)
+
+results <- rbind(summary, summary_control, summary_treat)
+results[4,1] <- "cittad_control"
+results[5,1] <- "regione_control"
+results[6,1]<-"titostud_control"
+
+results[7,1] <- "cittad_treatment"
+results[8,1] <- "regione_treatment"
+results[9,1]<-"titostud_treatment"
+
+results<- results[order(results$var),]
+table <- results %>% kable(caption = "Distributions in the male population in 2020 compared to selected men sample in 2020 of relevant demographic variables", booktabs =T ) %>% kable_styling( latex_options = c("striped","hold_position"),
+                                       full_width = T,
+                                       font_size = NULL,
+                                       row_label_position = "l",
+                                       repeat_header_text = "\\textit{(continued)}",
+                                       repeat_header_method = c("append", "replace"),
+                                       repeat_header_continued = FALSE,
+                                       stripe_color = "gray!6",
+                                       stripe_index = NULL,
+                                       latex_table_env = T,
+                                       protect_latex = TRUE,
+                                       table.envir = "table",
+                                       fixed_thead = FALSE,
+                                       htmltable_class = NULL,
+                                       html_font = NULL,
+                                       wraptable_width = "0pt")
+
+table
+
+
+```
+
+## Balancing
+
+We explore if the covariates are balanced between treatment and control group. Finally we look at balancing between treated and control groups through propensity score matching. In particular we use as a metric the standardized mean differences (SMD) of covariates in the treatment and control groups (11) to compare the two groups, since it is not influenced by units of measure. @stuart2010 recommended that a covariate is balanced when the absolute SMD value is \<0.25. Look at balancing for the female sample:
+
+-   The distance between treated and control females is relatively low and it is not thus incredibly improved by propensity score matching.
+
+```{r Balancing women, echo=FALSE, message=FALSE, warning=FALSE}
+#Check balancing women
+m.out_w <- matchit(treat ~ citt_it + citt_EU+ citt_extra_EU +NorthW+ NorthE + Centro +Sud +  no_titolo+elementari+medie + diploma+laurea+ eta  +
+type_2020_dip  + type_2019_dip  + type_2018_dip  + type_2017_dip  + type_2016_dip + type_2015_dip, data = women_data_2020, replace = TRUE)
+
+summary_m.out_w<-summary(m.out_w)
+summary_m.out_w
+
+plot(summary_m.out_w, xlim = c(0, 0.6))
+abline(v = 0.45, col="red")
+
+```
+
+Then, look at balancing for the male sample. The result are similar with an even better balancing between treated and controls.
+
+```{r Balancing men, echo=FALSE, message=FALSE, warning=FALSE}
+#Check balancing men
+
+m.out_m <- matchit(treat ~ citt_it + citt_EU+ citt_extra_EU +NorthW+ NorthE + Centro +Sud +  no_titolo+elementari+medie+ diploma+laurea + eta+
+type_2020_dip  + type_2019_dip  + type_2018_dip  + type_2017_dip  + type_2016_dip + type_2015_dip, data = men_data_2020,
+                 replace = TRUE)
+summary_m.out_m<-summary(m.out_m)
+summary_m.out_m
+plot(summary_m.out_m, xlim = c(0, 0.6))
+abline(v = 0.45, col="red")
+```
+
+# Difference in Difference Analysis
+
+We proceed and try to identify our Child Penalty through two event study Difference in Difference analyses.
+
+In the study the event time effect (effect of having a child at time t) is retrieved for both fathers and mothers, using as controls respectively men and women who don't have children. And the Child Penalty is given as the difference between the average effect having a child has on men and the average effect having a child has on women.
+
+The regression that estimates the effect of having children on earnings ($\alpha$) includes time (year of the observation) and age as controls and is computed separately for men and women.
+
+By $Y_{ist}^g$ it is denoted the outcome of interest for individual $i$ of gender $g$ in year $s$ and at event time $t$.
+
+$$
+Y_{ist}^g = \sum_{j\neq-1}\alpha_j^g\cdot I[j=t] + \sum_k \beta_k^g \cdot I[k= age_{is}] + \sum_y \gamma_y^g \cdot I[y=s] + v_{ist}^g 
+$$
+
+The effect $\hat{\alpha}$ is estimated using the estimator for treatment effect parameters using Difference-in-Differences (DiD) with multiple time periods and variation in treatment timing proposed by @callaway2021.
+
+The short-term "Child Penalty" on womens' earnings compared to mens' is then computed as the difference in these effects for the two genders.
+
+$$
+Child Penalty = \hat{\alpha}^m - \hat{\alpha}^f
+$$
+
+## DiDs for men and women
+
+We perform the two analyses:
+
+```{r DiD staggerd, echo=FALSE, message=FALSE, warning=FALSE}
+
+# PREPARATION OF DATA -----------------------------------------------
+
+women_data <- rowid_to_column(women_data, "index")
+men_data <- rowid_to_column(men_data, "index")
+#agewomen
+age_w <- NULL
+for (i in 1:length(women_data$index)) {
+  if(women_data$year[i] == 2020){
+    age_w[i] = women_data$eta[i] }
+  else if (women_data$year[i] == 2019){
+    
+    age_w[i] = women_data$eta[i]-1}
+  else if (women_data$year[i] == 2018){
+    
+    age_w[i] = women_data$eta[i]-2}
+  else if (women_data$year[i] == 2017){
+    
+    age_w[i] = women_data$eta[i]-3}
+  else if (women_data$year[i] == 2016){
+    
+    age_w[i] = women_data$eta[i]-4}
+  else if(women_data$year[i] == 2015){
+    
+    age_w[i] = women_data$eta[i]-5}
+}
+
+#agemen
+age_m <- NULL
+for (i in 1:length(men_data$index)) {
+  if(men_data$year[i] == 2020){
+    
+    age_m[i] = men_data$eta[i] }
+  else if (men_data$year[i] == 2019){
+    
+    age_m[i] = men_data$eta[i]-1}
+  else if (men_data$year[i] == 2018){
+    
+    age_m[i] = men_data$eta[i]-2}
+  else if (men_data$year[i] == 2017){
+    
+    age_m[i] = men_data$eta[i]-3}
+  else if (men_data$year[i] == 2016){
+    
+    age_m[i] = men_data$eta[i]-4}
+  else if(men_data$year[i] == 2015){
+    
+    age_m[i] = men_data$eta[i]-5}
+}
+
+women_data <- cbind(women_data, age_w)
+men_data <- cbind(men_data, age_m)
+
+
+#STAGGERED DID 
+women_data$year <- as.numeric(women_data$year)
+out_women <- att_gt(yname = "earnings",
+              gname = "birth",
+              idname = "codind",
+              tname = "year",
+              xformla=~ age_w + citt_it + citt_extra_EU +NorthW+ NorthE + Centro  +  elementari+medie+ diploma+laurea + type_2020_dip  + type_2019_dip  + type_2018_dip  + type_2017_dip  + type_2016_dip + type_2015_dip,
+              control_group="nevertreated",
+              data = women_data,
+              panel = TRUE,
+              base_period="universal",
+              bstrap = TRUE,
+              cband = TRUE
+)
+ggdid(out_women, title = "Estimated ATE on Women earnings grouped by birth year")
+
+
+
+men_data$year <- as.numeric(men_data$year)
+out_men <- att_gt(yname = "earnings",
+                  gname = "birth",
+                  idname = "codind",
+                  tname = "year",
+                  xformla=~age_m +citt_it + citt_extra_EU +NorthW+ NorthE + Centro +elementari+medie+ diploma+laurea  + type_2020_dip  + type_2019_dip  + type_2018_dip  + type_2017_dip  + type_2016_dip + type_2015_dip,
+                  control_group="nevertreated",
+                  data = men_data,
+                  panel = TRUE,
+                  base_period="universal",
+                  bstrap = TRUE,
+                  cband = TRUE
+)
+ggdid(out_men, title = "Estimated ATE on Men earnings grouped by birth year")
+
+#Aggregate by event time
+#"dynamic" (this computes average effects across different lengths of exposure to the treatment and is similar to an "event study"; here the overall effect averages the effect of the treatment across all positive lengths of exposure)
+es_women <- aggte(out_women, type = "dynamic")
+
+
+table <- es_women %>% tidy()  
+table<- table[,-(8:9)]%>% kable(caption = "Summary of Dynamic Effects: effect of having a Child on Women labour earnings", booktabs =T ) %>% kable_styling( latex_options = c("striped","hold_position"),
+                                       full_width = T,
+                                       font_size = NULL,
+                                       row_label_position = "l",
+                                       repeat_header_text = "\\textit{(continued)}",
+                                       repeat_header_method = c("append", "replace"),
+                                       repeat_header_continued = FALSE,
+                                       stripe_color = "gray!6",
+                                       stripe_index = NULL,
+                                       latex_table_env = T,
+                                       protect_latex = TRUE,
+                                       table.envir = "table",
+                                       fixed_thead = FALSE,
+                                       htmltable_class = NULL,
+                                       html_font = NULL,
+                                       wraptable_width = "0pt")
+
+table
+
+
+
+ggdid(es_women, title = "Average Effect for Women by time of event" )+
+  labs(y= "Average ATE on Women earnings (in euros)", x = "Event time")+
+   geom_vline(xintercept = -0.5)+
+geom_text(aes(x=-0.4, label="First child's birth", y=-2000), colour="black", angle=90, text=element_text(size=11))
+es_men <- aggte(out_men, type = "dynamic")
+ggdid(es_men, title = "Avereage Effect for Men by time of event")+
+  labs(y= "Average ATE on Men earnings (in euros)", x = "Event time")+
+   geom_vline(xintercept = -0.5)+
+   geom_text(aes(x=-0.4, label="First child's birth", y=0), colour="black", angle=90, text=element_text(size=11)) 
+overall_att_men <- es_men$overall.att 
+overall_att_women <- es_women$overall.att
+#overall treatment effect 
+
+
+ChildPenalty <- (overall_att_men - overall_att_women )
+cat("Child penalty is :", ChildPenalty,"euros per year")
+
+
+```
+
+We observe how for every group year there is a negative effect of having a child for women that is not present in men.
+
+```{r Reference earnings, echo=FALSE, message=FALSE, warning=FALSE}
+#t women
+women_data$year <- as.numeric(women_data$year)
+t_women = women_data$year - women_data$birth
+women_earnings <- data.frame(cbind(women_data$earnings, t_women, women_data$year))
+
+women_earnings_2015 <- women_earnings %>% filter(V3 == 2015) %>% filter(t_women == -1 | t_women == 2015) %>% summarise(mean_earnings_2015 = mean(V1))
+
+women_earnings_2016 <- women_earnings %>% filter(V3 == 2016) %>% filter(t_women == -1 | t_women == 2016) %>% summarise(mean_earnings_2016 = mean(V1))
+women_earnings_2017 <- women_earnings %>% filter(V3 == 2017) %>% filter(t_women == -1 | t_women == 2017) %>% summarise(mean_earnings_2017 = mean(V1))
+women_earnings_2018 <- women_earnings %>% filter(V3 == 2018) %>% filter(t_women == -1 | t_women == 2018) %>% summarise(mean_earnings_2018 = mean(V1))
+
+
+#t men
+men_data$year <- as.numeric(men_data$year)
+t_men = men_data$year - men_data$birth
+men_earnings <- data.frame(cbind(men_data$earnings, t_men, men_data$year))
+
+men_earnings_2015 <- men_earnings %>% filter(V3 == 2015) %>% filter(t_men == -1 | t_men == 2015) %>% summarise(mean_earnings_2015 = mean(V1))
+men_earnings_2016 <- men_earnings %>% filter(V3 == 2016) %>% filter(t_men == -1 | t_men == 2016) %>% summarise(mean_earnings_2016 = mean(V1))
+men_earnings_2017 <- men_earnings %>% filter(V3 == 2017) %>% filter(t_men == -1 | t_men == 2017) %>% summarise(mean_earnings_2015 = mean(V1))
+men_earnings_2018 <- men_earnings %>% filter(V3 == 2018) %>% filter(t_men == -1 | t_men == 2018) %>% summarise(mean_earnings_2015 = mean(V1))
+
+```
+
+We also compute the Child Penalty as the difference in ATT for men compared to women, divided by the mean earnings of women pre-child (excluding the control group).
+
+```{r denominator, echo=FALSE, message=FALSE, warning=FALSE}
+#FIND A DENOMINATOR TO GET A PERCENTAGE? 
+
+#WOMEN MEAN earnings PER YEAR AS A DET.
+library(doBy)
+women_data$year <- as.numeric(women_data$year)
+
+women_data$birth_dummy <-  women_data$year - women_data$birth
+women_earnings<- women_data %>% filter(birth_dummy <= -1) %>% summarize (mean = mean(earnings))
+women_earnings<- as.numeric(women_earnings)
+
+ChildPenalty <- (es_men$overall.att - es_women$overall.att)/women_earnings*100
+cat("Child penalty is :", ChildPenalty,"% of women earnings" )
+```
+
+### Robustness check
+
+```{r Robustness checks, echo=FALSE, message=FALSE, warning=FALSE}
+
+#STAGGERED DID 
+women_data$year <- as.numeric(women_data$year)
+out_women <- att_gt(yname = "earnings",
+              gname = "birth",
+              idname = "codind",
+              tname = "year",
+              xformla=~ age_w + citt_it + citt_extra_EU +NorthW+ NorthE + Centro  +elementari+medie+ diploma+laurea + type_2020_dip  + type_2019_dip  + type_2018_dip  + type_2017_dip  + type_2016_dip + type_2015_dip,
+              control_group="notyettreated",
+              data = women_data,
+              panel = TRUE,
+              base_period="universal",
+              bstrap = TRUE,
+              cband = TRUE
+)
+ggdid(out_women, title = "Estimated ATE on Women earnings grouped by birth year")
+
+
+
+men_data$year <- as.numeric(men_data$year)
+out_men <- att_gt(yname = "earnings",
+                  gname = "birth",
+                  idname = "codind",
+                  tname = "year",
+                  xformla=~age_m +citt_it + citt_extra_EU +NorthW+ NorthE + Centro +  elementari+medie + diploma+laurea  + type_2020_dip  + type_2019_dip  + type_2018_dip  + type_2017_dip  + type_2016_dip + type_2015_dip,
+                  control_group="notyettreated",
+                  data = men_data,
+                  panel = TRUE,
+                  base_period="universal",
+                  bstrap = TRUE,
+                  cband = TRUE
+)
+ggdid(out_men, title = "Estimated ATE on Men earnings grouped grouped by birth year")
+
+#Aggregate by event time
+#"dynamic" (this computes average effects across different lengths of exposure to the treatment and is similar to an "event study"; here the overall effect averages the effect of the treatment across all positive lengths of exposure)
+es_women <- aggte(out_women, type = "dynamic")
+table <- es_women %>% tidy()  
+table<- table[,-(8:9)]%>% kable(caption="Summary of Dynamic Effects: effect of having a Child on Women labour earnings")%>% kable_styling( latex_options = c("striped","hold_position"),
+                                       full_width = T,
+                                       font_size = NULL,
+                                       row_label_position = "l",
+                                       repeat_header_text = "\\textit{(continued)}",
+                                       repeat_header_method = c("append", "replace"),
+                                       repeat_header_continued = FALSE,
+                                       stripe_color = "gray!6",
+                                       stripe_index = NULL,
+                                       latex_table_env = T,
+                                       protect_latex = TRUE,
+                                       table.envir = "table",
+                                       fixed_thead = FALSE,
+                                       htmltable_class = NULL,
+                                       html_font = NULL,
+                                       wraptable_width = "0pt")
+table
+
+ggdid(es_women, title = "Avereage Effect for Women by time of event")+
+  labs(y= "Average ATE on Women earnings (in euros)", x = "Event time")+
+   geom_vline(xintercept = -0.5)+
+geom_text(aes(x=-0.4, label="First child's birth", y=-1000), colour="black", angle=90, text=element_text(size=11))
+es_men <- aggte(out_men, type = "dynamic")
+cat("Men summary analysis:")
+ggdid(es_men, title = "Avereage Effect for Men by time of event")+
+  labs(y= "Average ATE on Men earnings (in euros)", x = "Event time")+
+   geom_vline(xintercept = -0.5)+
+   geom_text(aes(x=-0.4, label="First child's birth", y=0), colour="black", angle=90, text=element_text(size=11)) 
+overall_att_men <- es_men$overall.att 
+overall_att_women <- es_women$overall.att
+#overall treatment effect 
+
+
+ChildPenalty <- (overall_att_men - overall_att_women )
+cat("Child penalty is :", ChildPenalty,"euros per year")
+
+
+```
+
+# Family Child Penalty
+
+We would like to explore the effect of having a child has on the families units
+
+We identify two possible outcome variables that gives us different measure of the the child effect:
+
+1.  We use as Y the **sum** of the earnings of men and women within the couple ( the total family earnings identified in the var: `family_earnings`) to look at ***impact*** that having a child has on the family unit
+
+2.  We use as Y the **difference** of the earnings of men and women within the couple (the within family child penalty identified in the var: `family_penalty`) to look at the evolution of the child penalty in each family type.
+
+## Impact on Total Family earnings of having a Child
+
+```{r Total Family earnings, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+treat <- mothers %>% full_join(fathers,  suffix = c(".w", ".m"), by=join_by(codfam)) %>%
+  mutate(family_impact_2015 = earnings_2015.w + earnings_2015.m, 
+         family_impact_2016 = earnings_2016.w + earnings_2016.m, 
+         family_impact_2017 = earnings_2017.w + earnings_2017.m, 
+         family_impact_2018 = earnings_2018.w + earnings_2018.m, 
+         family_impact_2019 = earnings_2019.w + earnings_2019.m, 
+         family_impact_2020 = earnings_2020.w + earnings_2020.m, )%>%
+      rename(birth = birth.m, treat = treat.m, n = n.m)
+
+treatm_impact <- treat[, c("codfam", "codind.m", "coef.m", "sesso.m", "classeta.m", "no_titolo.m", "elementari.m","medie.m","diploma.m","laurea.m", "eta.m",  "citt_it.m","citt_EU.m","citt_extra_EU.m","NorthW.m","NorthE.m","Centro.m","Sud.m", "type_2020_dip.m","type_2019_dip.m","type_2018_dip.m","type_2017_dip.m","type_2016_dip.m","type_2015_dip.m", "codind.w","coef.w", "sesso.w", "classeta.w", "no_titolo.w", "elementari.w","medie.w","diploma.w","laurea.w", "eta.w", "citt_it.w","citt_EU.w","citt_extra_EU.w","NorthW.w","NorthE.w","Centro.w","Sud.w", "type_2020_dip.w","type_2019_dip.w","type_2018_dip.w","type_2017_dip.w","type_2016_dip.w","type_2015_dip.w","n","treat","birth","family_impact_2015","family_impact_2016","family_impact_2017","family_impact_2018","family_impact_2019","family_impact_2020")]
+
+treatm_impact <- treatm_impact %>% pivot_longer(
+    cols = starts_with("family_impact_"),
+    names_to = "year",
+    names_prefix = "family_impact_",
+    values_to = "family_impact_"
+  )
+
+
+contr_impact <- women %>% full_join(men,  suffix = c(".w", ".m"), by=join_by(codfam)) %>%
+  mutate(family_impact_2015 = earnings_2015.w + earnings_2015.m, 
+         family_impact_2016 = earnings_2016.w + earnings_2016.m, 
+         family_impact_2017 = earnings_2017.w + earnings_2017.m, 
+         family_impact_2018 = earnings_2018.w + earnings_2018.m, 
+         family_impact_2019 = earnings_2019.w + earnings_2019.m, 
+         family_impact_2020 = earnings_2020.w + earnings_2020.m, )%>%
+      rename(birth = birth.m, treat = treat.m, n = n.m)
+control_impact <- contr_impact[, c("codfam", "codind.m", "coef.m", "sesso.m", "classeta.m", "no_titolo.m", "elementari.m","medie.m","diploma.m","laurea.m", "eta.m",  "citt_it.m","citt_EU.m","citt_extra_EU.m","NorthW.m","NorthE.m","Centro.m","Sud.m", "type_2020_dip.m","type_2019_dip.m","type_2018_dip.m","type_2017_dip.m","type_2016_dip.m","type_2015_dip.m", "codind.w","coef.w", "sesso.w", "classeta.w", "no_titolo.w", "elementari.w","medie.w","diploma.w","laurea.w", "eta.w", "citt_it.w","citt_EU.w","citt_extra_EU.w","NorthW.w","NorthE.w","Centro.w","Sud.w", "type_2020_dip.w","type_2019_dip.w","type_2018_dip.w","type_2017_dip.w","type_2016_dip.w","type_2015_dip.w","n","treat","birth","family_impact_2015","family_impact_2016","family_impact_2017","family_impact_2018","family_impact_2019","family_impact_2020")]
+
+control_impact <- control_impact %>% pivot_longer(
+    cols = starts_with("family_impact_"),
+    names_to = "year",
+    names_prefix = "family_impact_",
+    values_to = "family_impact_"
+  )
+
+family_sample_impact <- rbind(treatm_impact, control_impact)
+
+```
+
+```{r DiD staggerd family impact, echo=FALSE, message=FALSE, warning=FALSE}
+# PREPARATION OF DATA -----------------------------------------------
+
+family_sample_impact <- rowid_to_column(family_sample_impact, "index")
+#agewomen
+age_w <- NULL
+for (i in 1:length(family_sample_impact$index)) {
+  if(family_sample_impact$year[i] == 2020){
+    age_w[i] = family_sample_impact$eta.w[i] }
+  else if (family_sample_impact$year[i] == 2019){
+    
+    age_w[i] = family_sample_impact$eta.w[i]-1}
+  else if (family_sample_impact$year[i] == 2018){
+    
+    age_w[i] = family_sample_impact$eta.w[i]-2}
+  else if (family_sample_impact$year[i] == 2017){
+    
+    age_w[i] = family_sample_impact$eta.w[i]-3}
+  else if (family_sample_impact$year[i] == 2016){
+    
+    age_w[i] = family_sample_impact$eta.w[i]-4}
+  else if(family_sample_impact$year[i] == 2015){
+    
+    age_w[i] = family_sample_impact$eta.w[i]-5}
+}
+
+#agemen
+age_m <- NULL
+for (i in 1:length(family_sample_impact$index)) {
+  if(family_sample_impact$year[i] == 2020){
+    age_m[i] = family_sample_impact$eta.m[i] }
+  else if (family_sample_impact$year[i] == 2019){
+    
+    age_m[i] = family_sample_impact$eta.m[i]-1}
+  else if (family_sample_impact$year[i] == 2018){
+    
+    age_m[i] = family_sample_impact$eta.m[i]-2}
+  else if (family_sample_impact$year[i] == 2017){
+    
+    age_m[i] = family_sample_impact$eta.m[i]-3}
+  else if (family_sample_impact$year[i] == 2016){
+    
+    age_m[i] = family_sample_impact$eta.m[i]-4}
+  else if(family_sample_impact$year[i] == 2015){
+    
+    age_m[i] = family_sample_impact$eta.m[i]-5}
+}
+
+
+family_sample_impact <- cbind(family_sample_impact, age_m, age_w)
+
+
+#STAGGERED DID 
+family_sample_impact$year <- as.numeric(family_sample_impact$year)
+out_family <- att_gt(yname = "family_impact_",
+              gname = "birth",
+              idname = "codfam",
+              tname = "year",
+              xformla=~ age_w + age_m +citt_it.m+citt_EU.m+NorthW.m+NorthE.m+Centro.m+elementari.m+medie.m+ diploma.m+laurea.m+type_2020_dip.m+type_2019_dip.m+type_2018_dip.m+type_2017_dip.m+type_2016_dip.m+type_2015_dip.m+elementari.w+medie.w+  diploma.w+laurea.w+citt_it.w+citt_EU.w+type_2020_dip.w+type_2019_dip.w+type_2018_dip.w+type_2017_dip.w+type_2016_dip.w+type_2015_dip.w,
+              control_group="nevertreated",
+              data = family_sample_impact,
+              panel = TRUE,
+              base_period="universal",
+              bstrap = TRUE,
+              cband = TRUE
+)
+ggdid(out_family, title = "Estimated ATE on Family's total earnings grouped by birth year")
+
+
+
+
+#Aggregate by event time
+#"dynamic" (this computes average effects across different lengths of exposure to the treatment and is similar to an "event study"; here the overall effect averages the effect of the treatment across all positive lengths of exposure)
+es_family <- aggte(out_family, type = "dynamic")
+table <- es_family %>% tidy()  
+table<- table[,-(8:9)]%>% kable(caption="Summary of Dynamic Effects: effect of having a Child on Family's total labour earnings")%>% kable_styling( latex_options = c("striped","hold_position"),
+                                       full_width = T,
+                                       font_size = NULL,
+                                       row_label_position = "l",
+                                       repeat_header_text = "\\textit{(continued)}",
+                                       repeat_header_method = c("append", "replace"),
+                                       repeat_header_continued = FALSE,
+                                       stripe_color = "gray!6",
+                                       stripe_index = NULL,
+                                       latex_table_env = T,
+                                       protect_latex = TRUE,
+                                       table.envir = "table",
+                                       fixed_thead = FALSE,
+                                       htmltable_class = NULL,
+                                       html_font = NULL,
+                                       wraptable_width = "0pt")
+
+table
+ggdid(es_family, title = "Avereage Effect for Families by time of event")+
+  labs(y= "Average ATE on Total earnings of the family (in euros)", x = "Event time")+
+   geom_vline(xintercept = -0.5)+
+  geom_text(aes(x=-0.4, label="First child's birth", y=0), colour="black", angle=90, text=element_text(size=11))
+
+overall_att_family <- es_family$overall.att
+
+
+
+```
+
+We observe that having a child in general impacts negatively the family earnings: this could reflect based on the previous analysis that the negative impact on the mothers cannot be outweigh by an increased investment in the work by the fathers and that the whole family suffers from the Child Penalty.
+
+##Share Child Penalty
+
+```{r share on total earnings, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+treat <- mothers %>% full_join(fathers,  suffix = c(".w", ".m"), by=join_by(codfam)) %>%
+  mutate(family_impact_share_2015 = (earnings_2015.w/(earnings_2015.w + earnings_2015.m))*100, 
+  family_impact_share_2016 = (earnings_2016.w/(earnings_2016.w + earnings_2016.m))*100,
+         family_impact_share_2017 = (earnings_2017.w/(earnings_2017.w + earnings_2017.m))*100,
+         family_impact_share_2018 = (earnings_2018.w/(earnings_2018.w + earnings_2018.m))*100, 
+         family_impact_share_2019 = (earnings_2019.w/(earnings_2019.w + earnings_2019.m))*100,  
+         family_impact_share_2020 = (earnings_2020.w/(earnings_2020.w + earnings_2020.m))*100, )%>%
+      rename(birth = birth.m, treat = treat.m, n = n.m)
+treat[is.na(treat)] <- 0
+treatm_impact <- treat[, c("codfam", "codind.m", "coef.m", "sesso.m", "classeta.m",  "no_titolo.m", "elementari.m","medie.m","diploma.m","laurea.m", "eta.m",  "citt_it.m","citt_EU.m","citt_extra_EU.m","NorthW.m","NorthE.m","Centro.m","Sud.m", "type_2020_dip.m","type_2019_dip.m","type_2018_dip.m","type_2017_dip.m","type_2016_dip.m","type_2015_dip.m", "codind.w","coef.w", "sesso.w", "classeta.w", "no_titolo.w", "elementari.w","medie.w","diploma.w","laurea.w", "eta.w", "citt_it.w","citt_EU.w","citt_extra_EU.w","NorthW.w","NorthE.w","Centro.w","Sud.w", "type_2020_dip.w","type_2019_dip.w","type_2018_dip.w","type_2017_dip.w","type_2016_dip.w","type_2015_dip.w","n","treat","birth","family_impact_share_2015","family_impact_share_2016","family_impact_share_2017","family_impact_share_2018","family_impact_share_2019","family_impact_share_2020")]
+
+treatm_impact <- treatm_impact %>% pivot_longer(
+    cols = starts_with("family_impact_share_"),
+    names_to = "year",
+    names_prefix = "family_impact_share_",
+    values_to = "family_impact_share_"
+  )
+
+
+contr <- women %>% full_join(men,  suffix = c(".w", ".m"), by=join_by(codfam)) %>%
+  mutate(family_impact_share_2015 = (earnings_2015.w/(earnings_2015.w + earnings_2015.m))*100, 
+  family_impact_share_2016 = (earnings_2016.w/(earnings_2016.w + earnings_2016.m))*100,
+         family_impact_share_2017 = (earnings_2017.w/(earnings_2017.w + earnings_2017.m))*100,
+         family_impact_share_2018 = (earnings_2018.w/(earnings_2018.w + earnings_2018.m))*100, 
+         family_impact_share_2019 = (earnings_2019.w/(earnings_2019.w + earnings_2019.m))*100,  
+         family_impact_share_2020 = (earnings_2020.w/(earnings_2020.w + earnings_2020.m))*100,  )%>%
+      rename(birth = birth.m, treat = treat.m, n = n.m)
+contr[is.na(contr)] <- 0
+control_impact <- contr[, c("codfam", "codind.m", "coef.m", "sesso.m", "classeta.m",  "no_titolo.m", "elementari.m","medie.m","diploma.m","laurea.m", "eta.m",  "citt_it.m","citt_EU.m","citt_extra_EU.m","NorthW.m","NorthE.m","Centro.m","Sud.m", "type_2020_dip.m","type_2019_dip.m","type_2018_dip.m","type_2017_dip.m","type_2016_dip.m","type_2015_dip.m", "codind.w","coef.w", "sesso.w", "classeta.w", "no_titolo.w", "elementari.w","medie.w","diploma.w","laurea.w", "eta.w", "citt_it.w","citt_EU.w","citt_extra_EU.w","NorthW.w","NorthE.w","Centro.w","Sud.w", "type_2020_dip.w","type_2019_dip.w","type_2018_dip.w","type_2017_dip.w","type_2016_dip.w","type_2015_dip.w","n","treat","birth","family_impact_share_2015","family_impact_share_2016","family_impact_share_2017","family_impact_share_2018","family_impact_share_2019","family_impact_share_2020")]
+
+control_impact <- control_impact %>% pivot_longer(
+    cols = starts_with("family_impact_share_"),
+    names_to = "year",
+    names_prefix = "family_impact_share_",
+    values_to = "family_impact_share_"
+  )
+
+family_sample_impact_share <- rbind(treatm_impact, control_impact)
+
+```
+
+```{r DiD staggerd family share impact, echo=FALSE, message=FALSE, warning=FALSE}
+# PREPARATION OF DATA -----------------------------------------------
+
+family_sample_impact_share <- rowid_to_column(family_sample_impact_share, "index")
+#agewomen
+age_w <- NULL
+for (i in 1:length(family_sample_impact_share$index)) {
+  if(family_sample_impact_share$year[i] == 2020){
+    age_w[i] = family_sample_impact_share$eta.w[i] }
+  else if (family_sample_impact_share$year[i] == 2019){
+    
+    age_w[i] = family_sample_impact_share$eta.w[i]-1}
+  else if (family_sample_impact_share$year[i] == 2018){
+    
+    age_w[i] = family_sample_impact_share$eta.w[i]-2}
+  else if (family_sample_impact_share$year[i] == 2017){
+    
+    age_w[i] = family_sample_impact_share$eta.w[i]-3}
+  else if (family_sample_impact_share$year[i] == 2016){
+    
+    age_w[i] = family_sample_impact_share$eta.w[i]-4}
+  else if(family_sample_impact_share$year[i] == 2015){
+    
+    age_w[i] = family_sample_impact_share$eta.w[i]-5}
+}
+
+#agemen
+age_m <- NULL
+for (i in 1:length(family_sample_impact_share$index)) {
+  if(family_sample_impact_share$year[i] == 2020){
+    age_m[i] = family_sample_impact_share$eta.m[i] }
+  else if (family_sample_impact_share$year[i] == 2019){
+    
+    age_m[i] = family_sample_impact_share$eta.m[i]-1}
+  else if (family_sample_impact_share$year[i] == 2018){
+    
+    age_m[i] = family_sample_impact_share$eta.m[i]-2}
+  else if (family_sample_impact_share$year[i] == 2017){
+    
+    age_m[i] = family_sample_impact_share$eta.m[i]-3}
+  else if (family_sample_impact_share$year[i] == 2016){
+    
+    age_m[i] = family_sample_impact_share$eta.m[i]-4}
+  else if(family_sample_impact_share$year[i] == 2015){
+    
+    age_m[i] = family_sample_impact_share$eta.m[i]-5}
+}
+
+
+family_sample_impact_share <- cbind(family_sample_impact_share, age_m, age_w)
+
+
+#STAGGERED DID 
+family_sample_impact_share$year <- as.numeric(family_sample_impact_share$year)
+out_family <- att_gt(yname = "family_impact_share_",
+              gname = "birth",
+              idname = "codfam",
+              tname = "year",
+              xformla=~ age_w + age_m +citt_it.m+citt_EU.m+NorthW.m+NorthE.m+Centro.m + elementari.m + medie.m+  diploma.m+laurea.m+type_2020_dip.m+type_2019_dip.m+type_2018_dip.m+type_2017_dip.m+type_2016_dip.m+type_2015_dip.m+elementari.w+medie.w+  diploma.w+ laurea.w+citt_it.w+citt_EU.w+type_2020_dip.w+type_2019_dip.w+type_2018_dip.w+type_2017_dip.w+type_2016_dip.w+type_2015_dip.w,
+              control_group="nevertreated",
+              data = family_sample_impact_share,
+              panel = TRUE,
+              base_period="universal",
+              bstrap = TRUE,
+              cband = TRUE
+)
+ggdid(out_family, title = "Estimated ATE on Women's share on Total Family earnings grouped by birth year")
+
+
+
+
+#Aggregate by event time
+#"dynamic" (this computes average effects across different lengths of exposure to the treatment and is similar to an "event study"; here the overall effect averages the effect of the treatment across all positive lengths of exposure)
+es_family <- aggte(out_family, type = "dynamic")
+table <- es_family %>% tidy()  
+table<- table[,-(8:9)]%>%kable(caption="Summary of Dynamic Effects: effect of having a Child on Within Family Child Penalty (measured in the difference in share of women earnings over total earnings)")%>% kable_styling( latex_options = c("striped","hold_position"),
+                                       full_width = T,
+                                       font_size = NULL,
+                                       row_label_position = "l",
+                                       repeat_header_text = "\\textit{(continued)}",
+                                       repeat_header_method = c("append", "replace"),
+                                       repeat_header_continued = FALSE,
+                                       stripe_color = "gray!6",
+                                       stripe_index = NULL,
+                                       latex_table_env = T,
+                                       protect_latex = TRUE,
+                                       table.envir = "table",
+                                       fixed_thead = FALSE,
+                                       htmltable_class = NULL,
+                                       html_font = NULL,
+                                       wraptable_width = "0pt")
+table
+ggdid(es_family, title = "Avereage ATE on women earnings over total family earnings by time of event")+
+  labs(y= "Average ATE on women share on total earnings (in percentage points)", x = "Event time")+
+   geom_vline(xintercept = -0.5)+
+  geom_text(aes(x=-0.4, label="First child's birth", y=0), colour="black", angle=90, text=element_text(size=11))
+
+overall_att_family <- es_family$overall.att
+
+
+
+```
+
+## Within family Child Penalty
+
+Find the effect of having a child on the difference of wages of men and women within families.
+
+```{r Difference whithin Families, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+treat <- mothers %>% full_join(fathers,  suffix = c(".w", ".m"), by=join_by(codfam)) %>%
+  mutate(family_penalty_2015 = earnings_2015.m - earnings_2015.w, 
+         family_penalty_2016 = earnings_2016.m - earnings_2016.w, 
+         family_penalty_2017 = earnings_2017.m - earnings_2017.w, 
+         family_penalty_2018 = earnings_2018.m - earnings_2018.w, 
+         family_penalty_2019 = earnings_2019.m - earnings_2019.w, 
+         family_penalty_2020 = earnings_2020.m - earnings_2020.w, )%>%
+      rename(birth = birth.m, treat = treat.m, n = n.m)
+treatm_penalty <- treat[, c("codfam", "codind.m", "coef.m", "sesso.m", "classeta.m", "no_titolo.m", "elementari.m","medie.m","diploma.m","laurea.m", "eta.m",  "citt_it.m","citt_EU.m","citt_extra_EU.m","NorthW.m","NorthE.m","Centro.m","Sud.m", "type_2020_dip.m","type_2019_dip.m","type_2018_dip.m","type_2017_dip.m","type_2016_dip.m","type_2015_dip.m", "codind.w","coef.w", "sesso.w", "classeta.w", "no_titolo.w", "elementari.w","medie.w","diploma.w","laurea.w", "eta.w", "citt_it.w","citt_EU.w","citt_extra_EU.w","NorthW.w","NorthE.w","Centro.w","Sud.w", "type_2020_dip.w","type_2019_dip.w","type_2018_dip.w","type_2017_dip.w","type_2016_dip.w","type_2015_dip.w","n","treat","birth","family_penalty_2015","family_penalty_2016","family_penalty_2017","family_penalty_2018","family_penalty_2019","family_penalty_2020")]
+
+treatm_penalty  <- treatm_penalty  %>% pivot_longer(
+    cols = starts_with("family_penalty_"),
+    names_to = "year",
+    names_prefix = "family_penalty_",
+    values_to = "family_penalty_"
+  )
+
+
+contr_penalty <- women %>% full_join(men,  suffix = c(".w", ".m"), by=join_by(codfam)) %>%
+  mutate(family_penalty_2015 = earnings_2015.m - earnings_2015.w, 
+         family_penalty_2016 = earnings_2016.m - earnings_2016.w, 
+         family_penalty_2017 = earnings_2017.m - earnings_2017.w, 
+         family_penalty_2018 = earnings_2018.m - earnings_2018.w, 
+         family_penalty_2019 = earnings_2019.m - earnings_2019.w, 
+         family_penalty_2020 = earnings_2020.m - earnings_2020.w, )%>%
+      rename(birth = birth.m, treat = treat.m, n = n.m)
+control_penalty <- contr_penalty[, c("codfam", "codind.m", "coef.m", "sesso.m", "classeta.m","no_titolo.m", "elementari.m","medie.m","diploma.m","laurea.m", "eta.m",  "citt_it.m","citt_EU.m","citt_extra_EU.m","NorthW.m","NorthE.m","Centro.m","Sud.m", "type_2020_dip.m","type_2019_dip.m","type_2018_dip.m","type_2017_dip.m","type_2016_dip.m","type_2015_dip.m", "codind.w","coef.w", "sesso.w", "classeta.w", "no_titolo.w", "elementari.w","medie.w","diploma.w","laurea.w", "eta.w", "citt_it.w","citt_EU.w","citt_extra_EU.w","NorthW.w","NorthE.w","Centro.w","Sud.w", "type_2020_dip.w","type_2019_dip.w","type_2018_dip.w","type_2017_dip.w","type_2016_dip.w","type_2015_dip.w","n","treat","birth","family_penalty_2015","family_penalty_2016","family_penalty_2017","family_penalty_2018","family_penalty_2019","family_penalty_2020")]
+
+
+control_penalty <- control_penalty %>% pivot_longer(
+    cols = starts_with("family_penalty_"),
+    names_to = "year",
+    names_prefix = "family_penalty_",
+    values_to = "family_penalty_"
+  )
+
+family_sample_penalty <- rbind(treatm_penalty, control_penalty)
+
+```
+
+```{r DiD staggerd family child penalty, echo=FALSE, message=FALSE, warning=FALSE}
+# PREPARATION OF DATA -----------------------------------------------
+
+family_sample_penalty <- rowid_to_column(family_sample_penalty, "index")
+#agewomen
+age_w <- NULL
+for (i in 1:length(family_sample_penalty$index)) {
+  if(family_sample_penalty$year[i] == 2020){
+    age_w[i] = family_sample_penalty$eta.w[i] }
+  else if (family_sample_penalty$year[i] == 2019){
+    
+    age_w[i] = family_sample_penalty$eta.w[i]-1}
+  else if (family_sample_penalty$year[i] == 2018){
+    
+    age_w[i] = family_sample_penalty$eta.w[i]-2}
+  else if (family_sample_penalty$year[i] == 2017){
+    
+    age_w[i] = family_sample_penalty$eta.w[i]-3}
+  else if (family_sample_penalty$year[i] == 2016){
+    
+    age_w[i] = family_sample_penalty$eta.w[i]-4}
+  else if(family_sample_penalty$year[i] == 2015){
+    
+    age_w[i] = family_sample_penalty$eta.w[i]-5}
+}
+
+#agemen
+age_m <- NULL
+for (i in 1:length(family_sample_penalty$index)) {
+  if(family_sample_penalty$year[i] == 2020){
+    age_m[i] = family_sample_penalty$eta.m[i] }
+  else if (family_sample_penalty$year[i] == 2019){
+    
+    age_m[i] = family_sample_penalty$eta.m[i]-1}
+  else if (family_sample_penalty$year[i] == 2018){
+    
+    age_m[i] = family_sample_penalty$eta.m[i]-2}
+  else if (family_sample_penalty$year[i] == 2017){
+    
+    age_m[i] = family_sample_penalty$eta.m[i]-3}
+  else if (family_sample_penalty$year[i] == 2016){
+    
+    age_m[i] = family_sample_penalty$eta.m[i]-4}
+  else if(family_sample_penalty$year[i] == 2015){
+    
+    age_m[i] = family_sample_penalty$eta.m[i]-5}
+}
+
+
+family_sample_penalty <- cbind(family_sample_penalty, age_m, age_w)
+
+
+#STAGGERED DID 
+family_sample_penalty$year <- as.numeric(family_sample_penalty$year)
+out_family <- att_gt(yname = "family_penalty_",
+              gname = "birth",
+              idname = "codfam",
+              tname = "year",
+              xformla=~ age_w + age_m +citt_it.m+citt_EU.m+NorthW.m+NorthE.m+Centro.m+elementari.m+medie.m+  diploma.m+laurea.m+type_2020_dip.m+type_2019_dip.m+type_2018_dip.m+type_2017_dip.m+type_2016_dip.m+type_2015_dip.m+elementari.w+medie.w+  diploma.w+laurea.w+citt_it.w+citt_EU.w+type_2020_dip.w+type_2019_dip.w+type_2018_dip.w+type_2017_dip.w+type_2016_dip.w+type_2015_dip.w,
+              control_group="nevertreated",
+              data = family_sample_penalty,
+              panel = TRUE,
+              base_period="universal",
+              bstrap = TRUE,
+              cband = TRUE
+)
+
+ggdid(out_family, title = "Estimated ATE on Within Family difference in earnings" )
+
+
+
+
+#Aggregate by event time
+#"dynamic" (this computes average effects across different lengths of exposure to the treatment and is similar to an "event study"; here the overall effect averages the effect of the treatment across all positive lengths of exposure)
+es_family <- aggte(out_family, type = "dynamic")
+table <- es_family %>% tidy()  
+table<- table[,-(8:9)]%>%kable(caption="Summary of Dynamic Effects: effect of having a Child on Difference in earnings within family")%>% kable_styling( latex_options = c("striped","hold_position"),
+                                       full_width = T,
+                                       font_size = NULL,
+                                       row_label_position = "l",
+                                       repeat_header_text = "\\textit{(continued)}",
+                                       repeat_header_method = c("append", "replace"),
+                                       repeat_header_continued = FALSE,
+                                       stripe_color = "gray!6",
+                                       stripe_index = NULL,
+                                       latex_table_env = T,
+                                       protect_latex = TRUE,
+                                       table.envir = "table",
+                                       fixed_thead = FALSE,
+                                       htmltable_class = NULL,
+                                       html_font = NULL,
+                                       wraptable_width = "0pt")
+table
+
+ggdid(es_family,  title = "Avereage ATE on within family gender gap by time of event")+
+  labs(y= "Average ATE on within family gender gap (in euros)", x = "Event time")+
+   geom_vline(xintercept = -0.5)+
+  geom_text(aes(x=-0.4, label="First child's birth", y=0), colour="black", angle=90, text=element_text(size=11))
+
+#Save a dataset to look at heterogeneity'
+print
+save(family_sample_penalty, family_sample_impact_share, family_sample_impact,
+     file = str_c(path,"/gender_data.Rdata"))
+
+```
+
+# Explore heterogeneity
+
+Once we have estimated the average effects that having a child has on a family, and the average effect that having a child has on the difference of earnings within the couples, our next step is to explore if there is some heterogeneity in those effects depending on variables that relate to the type of job the parents have, their citizenship, the Italian region in which they are living and other potential "group" identifiers.
+
+Understanding which types of families are more affected by the Child Penalty is crucial for policy purposes, as policymakers can refine and target interventions in family policies to maximize their effectiveness.
+
+We will perform these analysis using two of analysis Machine Learning tools, as they allow us to not have to decide a priori what are the sources and the structure of heterogeneity and allow for a more detailed categorization of the subgroups more affected by the event.
+
+We will explore the heterogeneity of the Family Impact effect and the Within Family Child Penalty using Causal Trees to inform us on which types of families' earningss are more affected by the birth of a child and Causal Forests to identify the demographic covariates that are more relevant in explaining these effects.
+
+```{r heterogeneity impact , message=FALSE, warning=FALSE}
+rm()
+#Save a dataset to look at heterogeneity'
+#Heterogeneity family impact
+load("C:/Users/emmab/OneDrive/Documenti/ISTA/gender_data.Rdata")
+family_sample_impact <- data.frame(lapply(family_sample_impact, function(x) as.numeric(as.character(x))))
+family_sample_impact <- family_sample_impact %>% mutate_if(is.character,as.numeric)
+
+t = family_sample_impact$year - family_sample_impact$birth
+
+
+family_sample_impact <- cbind(family_sample_impact, t) 
+family_sample_impact <- family_sample_impact %>% filter(t ==1 | birth == 0)  %>% rename(Y=family_impact_,W=treat) %>% select("codfam","citt_it.m","citt_EU.m","citt_extra_EU.m", "NorthW.m","NorthE.m","Centro.m","Sud.m", "no_titolo.m", "elementari.m","medie.m","diploma.m","laurea.m", "eta.m", "type_2020_dip.m", "citt_it.w","citt_EU.w","citt_extra_EU.w", "no_titolo.w", "elementari.w","medie.w","diploma.w","laurea.w", "eta.w", "type_2020_dip.w","n",W, Y)
+covariate_names <- c("citt_it.m","citt_EU.m","citt_extra_EU.m", "NorthW.m","NorthE.m","Centro.m","Sud.m", "no_titolo.m", "elementari.m","medie.m","diploma.m","laurea.m", "eta.m", "type_2020_dip.m", "citt_it.w","citt_EU.w","citt_extra_EU.w", "no_titolo.w", "elementari.w","medie.w","diploma.w","laurea.w", "eta.w", "type_2020_dip.w","n")
+
+
+# estimate the propensity score
+fit <- glm(W~citt_it.m+citt_EU.m++NorthW.m+NorthE.m+Centro.m+elementari.m+medie.m+ diploma.m+laurea.m+citt_it.w+citt_EU.w+elementari.w+medie.w+ diploma.w+laurea.w,
+           data=family_sample_impact,
+           family = "binomial")
+family_sample_impact$ps_score <-as.vector(predict(fit,type = "response"))
+linear_terms <-covariate_names
+
+```
+
+```{r impact tree, message=FALSE, warning=FALSE}
+
+
+
+# estimate the model with htetree package
+set.seed(1)
+lb <- c(covariate_names)
+names(lb) <- c(covariate_names)
+
+tree1 <-htetree::hte_ipw(outcomevariable = 'Y',
+               minsize=210,crossvalidation = 40,negative = TRUE,
+               data = family_sample_impact,
+               ps_indicator = "ps_score",
+               drawplot = TRUE,treatment_indicator = "W",covariates = covariate_names,
+               # no_indicater = '_IPW_simulation',
+               legend.x = 0.75,legend.y = 0.80,varlabel = lb,
+                              maintitle = "Heterogeneity of ATE on women share of earnings on total family's earnings")
+
+```
+## Heterogeneity of impact on share
+
+```{r heterogeneity impact share, message=FALSE, warning=FALSE}
+rm()
+#Save a dataset to look at heterogeneity'
+#Heterogeneity family impact
+load("C:/Users/emmab/OneDrive/Documenti/ISTA/gender_data.Rdata")
+family_sample_impact_share <- data.frame(lapply(family_sample_impact_share, function(x) as.numeric(as.character(x))))
+family_sample_impact_share <- family_sample_impact_share %>% mutate_if(is.character,as.numeric)
+
+t = family_sample_impact_share$year - family_sample_impact_share$birth
+
+
+family_sample_impact_share <- cbind(family_sample_impact_share, t) 
+family_sample_impact_share <- family_sample_impact_share %>% filter(t ==1 | birth == 0)  %>% rename(Y=family_impact_share_,W=treat) %>% select("codfam","citt_it.m","citt_EU.m","citt_extra_EU.m", "NorthW.m","NorthE.m","Centro.m","Sud.m", "no_titolo.m", "elementari.m","medie.m","diploma.m","laurea.m", "eta.m", "type_2020_dip.m", "citt_it.w","citt_EU.w","citt_extra_EU.w", "no_titolo.w", "elementari.w","medie.w","diploma.w","laurea.w", "eta.w", "type_2020_dip.w","n",W, Y)
+covariate_names <- c("citt_it.m","citt_EU.m","citt_extra_EU.m", "NorthW.m","NorthE.m","Centro.m","Sud.m", "no_titolo.m", "elementari.m","medie.m","diploma.m","laurea.m", "eta.m", "type_2020_dip.m", "citt_it.w","citt_EU.w","citt_extra_EU.w", "no_titolo.w", "elementari.w","medie.w","diploma.w","laurea.w", "eta.w", "type_2020_dip.w","n")
+
+
+# estimate the propensity score
+fit <- glm(W~citt_it.m+citt_EU.m++NorthW.m+NorthE.m+Centro.m+elementari.m+medie.m+ diploma.m+laurea.m+citt_it.w+citt_EU.w+elementari.w+medie.w+ diploma.w+laurea.w,
+           data=family_sample_impact_share,
+           family = "binomial")
+family_sample_impact_share$ps_score <-as.vector(predict(fit,type = "response"))
+linear_terms <-covariate_names
+
+```
+
+```{r share tree, message=FALSE, warning=FALSE}
+
+
+
+# estimate the model with htetree package
+set.seed(1)
+lb <- c(covariate_names)
+names(lb) <- c(covariate_names)
+
+tree1 <-htetree::hte_ipw(outcomevariable = 'Y',
+               minsize=210,crossvalidation = 40,negative = TRUE,
+               data = family_sample_impact_share,
+               ps_indicator = "ps_score",
+               drawplot = TRUE,treatment_indicator = "W",covariates = covariate_names,
+               # no_indicater = '_IPW_simulation',
+               legend.x = 0.75,legend.y = 0.80,varlabel = lb,
+                              maintitle = "Heterogeneity of ATE on women share of earnings on total family's earnings")
+
+```
+
+```{r share forest, message=FALSE, warning=FALSE}
+#FOREST====================
+Y = family_sample_impact_share$Y
+X=as.matrix(family_sample_impact_share[,covariate_names])
+W=family_sample_impact_share$W
+Y.forest = regression_forest (X, Y)
+Y.hat = predict (Y.forest)$predictions
+W.forest = regression_forest (X, W)
+W.hat = predict (W.forest)$predictions
+
+cf.raw = causal_forest (X, Y, W, 
+                        Y.hat = Y.hat, W.hat = W.hat)
+varimp = variable_importance (cf.raw)
+#Table Importance
+selected.idx = which(varimp > mean(varimp)) 
+varimp <- data.frame(varimp)
+importance = varimp[selected.idx,]
+selected_column_names <- colnames(X)[selected.idx]
+df_importance_var <- data.frame(Covariate = selected_column_names, Importance = importance )
+df_importance_var  <- df_importance_var[order(-df_importance_var$Importance),] 
+#TABLE
+table_impact <- df_importance_var %>% kable(caption = "Relevant variables for heterogeneity",
+   booktabs =T ) %>% kable_styling( latex_options = c("striped","hold_position"),
+                                       full_width = T,
+                                       font_size = NULL,
+                                       row_label_position = "l",
+                                       repeat_header_text = "\\textit{(continued)}",
+                                       repeat_header_method = c("append", "replace"),
+                                       repeat_header_continued = FALSE,
+                                       stripe_color = "gray!6",
+                                       stripe_index = NULL,
+                                       latex_table_env = T,
+                                       protect_latex = TRUE,
+                                       table.envir = "table",
+                                       fixed_thead = FALSE,
+                                       htmltable_class = NULL,
+                                       html_font = NULL,
+                                       wraptable_width = "0pt")
+
+
+table_impact
+
+```
+
+## Heterogeneity in Within Family Child Penalty
+
+```{r heterogeneity penalty, message=FALSE, warning=FALSE}
+#HETEROGENEITY OF PENALTY====================
+load("C:/Users/emmab/OneDrive/Documenti/ISTA/gender_data.Rdata")
+
+family_sample_penalty <- data.frame(lapply(family_sample_penalty, function(x) as.numeric(as.character(x))))
+family_sample_penalty <- family_sample_penalty %>% mutate_if(is.character,as.numeric)
+
+t = family_sample_penalty$year - family_sample_penalty$birth
+
+family_sample_penalty <- cbind(family_sample_penalty, t) 
+family_sample_penalty <- family_sample_penalty %>% filter(t ==1 | birth == 0)  %>% rename(Y=family_penalty_,W=treat) %>% select("codfam","citt_it.m","citt_EU.m","citt_extra_EU.m", "NorthW.m","NorthE.m","Centro.m","Sud.m", "no_titolo.m", "elementari.m","medie.m","diploma.m","laurea.m", "eta.m", "type_2020_dip.m", "citt_it.w","citt_EU.w","citt_extra_EU.w", "no_titolo.w", "elementari.w","medie.w","diploma.w","laurea.w", "eta.w", "type_2020_dip.w","n",W, Y)
+covariate_names <- c("citt_it.m","citt_EU.m","citt_extra_EU.m", "NorthW.m","NorthE.m","Centro.m","Sud.m", "no_titolo.m", "elementari.m","medie.m","diploma.m","laurea.m", "eta.m", "type_2020_dip.m", "citt_it.w","citt_EU.w","citt_extra_EU.w", "no_titolo.w", "elementari.w","medie.w","diploma.w","laurea.w", "eta.w", "type_2020_dip.w","n")
+
+
+# estimate the propensity score
+fit <- glm(W~citt_it.m+citt_EU.m++NorthW.m+NorthE.m+Centro.m+elementari.m+medie.m+ diploma.m+laurea.m+citt_it.w+citt_EU.w+elementari.w+medie.w+ diploma.w+laurea.w,
+           data=family_sample_penalty,
+           family = "binomial")
+family_sample_penalty$ps_score <-as.vector(predict(fit,type = "response"))
+linear_terms <-covariate_names
+
+```
+
+```{r penalty tree, message=FALSE, warning=FALSE}
+#TREE=================
+
+
+
+# estimate the model with htetree package
+set.seed(1)
+lb <- c(covariate_names)
+names(lb) <- c(covariate_names)
+
+tree1 <- htetree::hte_ipw(outcomevariable = 'Y',
+               minsize=210,crossvalidation = 40,negative = FALSE,
+               data = family_sample_penalty,
+               ps_indicator = "ps_score",
+               drawplot = TRUE,treatment_indicator = "W",covariates = covariate_names,
+               # no_indicater = '_IPW_simulation',
+               legend.x = 0.10,legend.y = 0.90,varlabel = lb,
+               maintitle = "Heterogeneity of ATE on within family gender gap")
+
+
+```
+
+```{r penalty forest, message=FALSE, warning=FALSE}
+#Forest preparation
+Y = family_sample_penalty$Y
+X=as.matrix(family_sample_penalty[,2:13])
+W=family_sample_penalty$W
+Y.forest = regression_forest (X, Y)
+Y.hat = predict (Y.forest)$predictions
+W.forest = regression_forest (X, W)
+W.hat = predict (W.forest)$predictions
+
+cf.raw = causal_forest (X, Y, W, 
+                        Y.hat = Y.hat, W.hat = W.hat)
+varimp = variable_importance (cf.raw)
+#Table Importance
+selected.idx = which(varimp > mean(varimp)) 
+varimp <- data.frame(varimp)
+importance = varimp[selected.idx,]
+selected_column_names <- colnames(X)[selected.idx]
+df_importance_var <- data.frame(Covariate = selected_column_names, Importance = importance )
+df_importance_var  <- df_importance_var[order(-df_importance_var$Importance),] 
+#TABLE
+table_penalty <- df_importance_var %>% kable(caption = "Relevant variables for heterogeneity",
+   booktabs =T) %>%  kable_styling( latex_options = c("striped","hold_position"),
+                                       full_width = T,
+                                       font_size = NULL,
+                                       row_label_position = "l",
+                                       repeat_header_text = "\\textit{(continued)}",
+                                       repeat_header_method = c("append", "replace"),
+                                       repeat_header_continued = FALSE,
+                                       stripe_color = "gray!6",
+                                       stripe_index = NULL,
+                                       latex_table_env = T,
+                                       protect_latex = TRUE,
+                                       table.envir = "table",
+                                       fixed_thead = FALSE,
+                                       htmltable_class = NULL,
+                                       html_font = NULL,
+                                       wraptable_width = "0pt")
+
+table_penalty
+
+```
+
+#Variations on outcome variable
+
+To complete our analysis lasly explore the effect that having a child has on other three potential outcome variables:
+
+-   Y = binary variable for the observation to have any earnings from work or not. This will allow us to estimate the selection effect.
+
+-   Y = log(`earnings_20xx`). This will allow us to estimate the intensive effect.
+
+-   Y = `y1_lav_dipxx`. We explore the effect that having a child has on the available earnings (total earnings from work and other activities i.e. financial revenues, after taxes).
+
+## Binary outcome
+
+The results for the DID analyses show a similar picture as for the original outcome variable. Criteria for being not occupated: earnings for autonomous worker less then 4800 euros, earnings for dependent worker less then 8145 euros (NASPI [criteria](https://www.inps.it/it/it/inps-comunica/dossier/la-naspi/faq---domande-frequenti-sulla-naspi.html))
+
+```{r binary outcome, message=FALSE, warning=FALSE}
+rm(list = ls())
+
+getwd()
+setwd("C:/Users/emmab/OneDrive/Documenti/ISTA")
+path <- "C:/Users/emmab/OneDrive/Documenti/ISTA"
+
+#original ISTAT dataset:
+tiro23_datie <- read.delim(file.path(path,"/tiro23_datie.txt"))
+#clean from NA -> from database description they are zeros
+data_clean  <- tiro23_datie %>% 
+  mutate(Y_dispo15  = replace_na(Y_dispo15, 0),
+         Y_dispo16  = replace_na(Y_dispo16, 0),
+         Y_dispo17 = replace_na(Y_dispo17, 0),
+         Y_dispo18 = replace_na(Y_dispo18, 0),
+         Y_dispo19 = replace_na(Y_dispo19, 0),
+         Y_dispo20 = replace_na(Y_dispo20, 0), 
+         y_red_tote15 = replace_na(y_red_tote15, 0),
+         y_red_tote16 = replace_na(y_red_tote16, 0),
+         y_red_tote17 = replace_na(y_red_tote17, 0),
+         y_red_tote18 = replace_na(y_red_tote18, 0),
+         y_red_tote19 = replace_na(y_red_tote19, 0),
+         y_red_tote20 = replace_na(y_red_tote20, 0), 
+         ye1_lav_dip15 = replace_na(ye1_lav_dip15, 0), 
+         ye1_lav_dip16 = replace_na(ye1_lav_dip16, 0), 
+         ye1_lav_dip17 = replace_na(ye1_lav_dip17, 0), 
+         ye1_lav_dip18 = replace_na(ye1_lav_dip18, 0), 
+         ye1_lav_dip19 = replace_na(ye1_lav_dip19, 0), 
+         ye1_lav_dip20 = replace_na(ye1_lav_dip20, 0),
+         ye2_red_pen15 = replace_na(ye2_red_pen15, 0),
+         ye2_red_pen16 = replace_na(ye2_red_pen16, 0),
+         ye2_red_pen17 = replace_na(ye2_red_pen17, 0),
+         ye2_red_pen18 = replace_na(ye2_red_pen18, 0),
+         ye2_red_pen19 = replace_na(ye2_red_pen19, 0),
+         ye2_red_pen20 = replace_na(ye2_red_pen20, 0),
+         ye3_lav_aut15 = replace_na(ye3_lav_aut15, 0),
+         ye3_lav_aut16 = replace_na(ye3_lav_aut16, 0),
+         ye3_lav_aut17 = replace_na(ye3_lav_aut17, 0),
+         ye3_lav_aut18 = replace_na(ye3_lav_aut18, 0),
+         ye3_lav_aut19 = replace_na(ye3_lav_aut19, 0),
+         ye3_lav_aut20 = replace_na(ye3_lav_aut20, 0))
+
+#missing values in titostud if the person is young (less then 15 y.o.), substitute with 0
+data_clean$titostud[is.na(data_clean$titostud)] <- 0
+
+rm(list = "tiro23_datie")
+#built var reddito da lavoro
+data_clean =data_clean %>% mutate(
+  earnings_2016 =  case_when(ye1_lav_dip16 <= 8145 & ye3_lav_aut16 <= 4800 ~ 0,
+                           ye1_lav_dip16 != 8145 | ye3_lav_aut16 != 4800 ~ 1),
+  
+  earnings_2017 =  case_when(ye1_lav_dip17 <= 8145 & ye3_lav_aut17 <= 4800 ~ 0,
+                           ye1_lav_dip17 != 8145 | ye3_lav_aut17 != 4800 ~ 1),
+  earnings_2018 =  case_when(ye1_lav_dip18 <= 8145 & ye3_lav_aut18 <= 4800 ~ 0,
+                           ye1_lav_dip18 != 8145 | ye3_lav_aut18 != 4800 ~ 1),
+  earnings_2019 =  case_when(ye1_lav_dip19 <= 8145 & ye3_lav_aut19 <= 4800 ~ 0,
+                           ye1_lav_dip19 != 8145 | ye3_lav_aut19 != 4800 ~ 1),
+  earnings_2020 =case_when(ye1_lav_dip20 <= 8145 & ye3_lav_aut20 <= 4800 ~ 0,
+                         ye1_lav_dip20 != 8145 | ye3_lav_aut20 != 4800 ~ 1), 
+  earnings_2015 = case_when(ye1_lav_dip15 <= 8145 & ye3_lav_aut15 <= 4800 ~ 0,
+                          ye1_lav_dip15 != 8145 | ye3_lav_aut15 != 4800 ~ 1),                                  
+type_2020_indip = case_when(ye3_lav_aut20 > ye1_lav_dip20 & (ye3_lav_aut20 > 0 | ye1_lav_dip20>0) ~ 1,
+                      TRUE  ~ 0),
+type_2020_dip = case_when(ye3_lav_aut20 < ye1_lav_dip20 & (ye3_lav_aut20 > 0 | ye1_lav_dip20>0) ~ 1,
+                      TRUE  ~ 0),
+type_2019_indip = case_when(ye3_lav_aut19 > ye1_lav_dip19 & (ye3_lav_aut19 > 0 | ye1_lav_dip19>0) ~ 1,
+                      TRUE  ~ 0),
+type_2019_dip = case_when(ye3_lav_aut19 < ye1_lav_dip19 & (ye3_lav_aut19 > 0 | ye1_lav_dip19>0) ~ 1,
+                      TRUE  ~ 0),
+type_2018_indip = case_when(ye3_lav_aut18 > ye1_lav_dip18 & (ye3_lav_aut18 > 0 | ye1_lav_dip18>0) ~ 1,
+                      TRUE  ~ 0),
+type_2018_dip = case_when(ye3_lav_aut18 < ye1_lav_dip18 & (ye3_lav_aut18 > 0 | ye1_lav_dip18>0) ~ 1,
+                      TRUE  ~ 0),
+type_2017_indip = case_when(ye3_lav_aut17 > ye1_lav_dip17 & (ye3_lav_aut17 > 0 | ye1_lav_dip17>0) ~ 1,
+                      TRUE  ~ 0),
+type_2017_dip = case_when(ye3_lav_aut17 < ye1_lav_dip17 & (ye3_lav_aut17 > 0 | ye1_lav_dip17>0) ~ 1,
+                      TRUE  ~ 0),
+type_2016_indip = case_when(ye3_lav_aut16 > ye1_lav_dip16 & (ye3_lav_aut16 > 0 | ye1_lav_dip16>0) ~ 1,
+                      TRUE  ~ 0),
+type_2016_dip = case_when(ye3_lav_aut16 < ye1_lav_dip16 & (ye3_lav_aut16 > 0 | ye1_lav_dip16>0) ~ 1,
+                      TRUE  ~ 0),
+type_2015_indip = case_when(ye3_lav_aut15 > ye1_lav_dip15 & (ye3_lav_aut15 > 0 | ye1_lav_dip15>0) ~ 1,
+                      TRUE  ~ 0),
+type_2015_dip = case_when(ye3_lav_aut15 < ye1_lav_dip15 & (ye3_lav_aut15 > 0 | ye1_lav_dip15>0) ~ 1,
+                      TRUE  ~ 0),
+citt_it   = case_when (cittad  == 1 ~ 1, 
+                       TRUE ~ 0),
+citt_EU   = case_when (cittad  == 2 ~ 1, 
+                       TRUE ~ 0),
+citt_extra_EU   = case_when (cittad  == 3 ~ 1, 
+                       TRUE ~ 0),
+NorthW  = case_when (ripart4 == 1 ~ 1,
+                       TRUE ~ 0),
+NorthE  = case_when (ripart4 == 2 ~ 1,
+                       TRUE ~ 0),
+Centro  = case_when (ripart4 == 3 ~ 1,
+                       TRUE ~ 0),
+Sud  = case_when (ripart4 == 4 ~ 1,
+                       TRUE ~ 0),
+no_titolo  = case_when (titostud == 1 ~ 1,
+                       TRUE ~ 0),
+elementari  = case_when (titostud == 2 ~ 1,
+                       TRUE ~ 0),
+medie = case_when (titostud == 3 ~ 1,
+                       TRUE ~ 0),
+diploma = case_when (titostud == 4 | titostud == 5   ~ 1,
+                       TRUE ~ 0),
+laurea  = case_when (titostud == 6 ~ 1,
+                       TRUE ~ 0))
+#NOTE type = 1 LAV AUT, type = 2 LAV DIP
+
+#isolare le famiglie con figli nati dal 2017 al 2020
+figli <- data_clean %>% filter( eta == 1 | eta == 2 | eta == 3)   %>% select(codfam, eta) 
+
+codice <- unique(figli) %>% pull(codfam)
+
+
+#famiglie con figli dai 0 ai 3 anni
+famiglie <- data_clean  %>%  filter(codfam %in% codice) 
+
+
+#trova famiglie con primogenito nella categoria
+
+
+famiglie_nmembers <- famiglie %>% count(codfam) %>% right_join(famiglie)
+
+only_child <- famiglie_nmembers %>% filter(n==3)
+
+
+
+anni3 <- famiglie_nmembers %>% filter(eta == 3 & n<= 4) %>% select(codfam)
+codice_anni3 <- unique(anni3) %>% pull(codfam)
+anni3_fratelli <- famiglie_nmembers %>% filter(codfam %in% codice_anni3) %>% filter(eta <= 1) %>% select(codfam)
+codice_fratelli3 <- unique(anni3_fratelli) %>% pull(codfam)
+
+anni2 <-famiglie_nmembers %>% filter(eta == 2 & n<= 4) %>% select(codfam)
+codice_anni2 <- unique(anni2) %>% pull(codfam)
+anni2_fratelli <- famiglie_nmembers %>% filter(codfam %in% codice_anni2) %>% filter(eta <= 0)%>% select(codfam)
+codice_fratelli2 <- unique(anni2_fratelli) %>% pull(codfam)
+
+
+
+famiglie_fratelli <-  famiglie_nmembers %>% filter(codfam %in% codice_fratelli3| codfam %in% codice_fratelli2 )
+#not allowing twins
+
+#famiglie count finale
+families <- rbind(only_child, famiglie_fratelli)
+families_code <- families %>% filter((eta>3 & classeta<3) | classeta>6) %>% select(codfam)
+families_code <- unique(families_code) %>% pull(codfam)
+families_final <- families %>%filter(!codfam %in% families_code)
+
+###GOAL: creat variable event_year
+#create children data se
+children <- families_final  %>% filter(classeta ==1) %>% select(codfam, codind, eta) %>% group_by(codfam) %>% slice(which.max(eta))
+children$birth <- 2020 - children$eta -1
+event <- children %>% select(codfam, birth) 
+
+
+#exclude single parents
+couples <- families_final  %>% filter(classeta > 2) %>% group_by (codfam) %>% summarise(sommasesso = sum(sesso)) %>% filter(sommasesso == 3) %>% select(codfam)
+#NB sommasesso == 3 ensures only heterosexuals couples are selected.
+parents_code <- unique(couples) %>% pull(codfam)
+parents <- families_final  %>%  filter(codfam %in% parents_code)
+
+
+mothers <- parents %>% filter(sesso == 2 & classeta > 2) %>% left_join(event)
+
+fathers <- parents %>% filter(sesso == 1 & classeta >2) %>% left_join(event)
+
+treatment_couples <- rbind(mothers, fathers)
+
+cat("Mothers in treatment group :", nrow(mothers) )
+cat("Fathers in treatment group :", nrow(fathers) )
+
+
+rm(list = setdiff(ls(), c("path", "mothers", "fathers", "families_final", "data_clean", "children", "treatment_couples")))
+
+ 
+#coppie senza figli
+data <- data_clean  %>% count(codfam) %>% right_join(data_clean)
+no_figli <- data  %>%  filter(n == 2 & classeta %in% (3:5)) %>%  filter(eta <= 50) %>% group_by (codfam) %>% summarise(sommasesso = sum(sesso)) %>% filter(sommasesso == 3) %>% select(codfam)
+#NB sommasesso == 3 ensures only heterosexuals couples are selected.
+no_figli_code <- unique(no_figli) %>% pull(codfam)
+controls_couples <- data  %>%  filter(codfam %in% no_figli_code) 
+
+
+women <- controls_couples %>% filter(sesso == 2)
+women$birth <- 0
+
+men <- controls_couples %>% filter(sesso == 1)
+men$birth <- 0
+
+men_order <- men[order(men$codfam),]
+women_order <- women[order(women$codfam),]
+age_gap = men_order$eta - women_order$eta
+age_gap <- data.frame(cbind(age_gap, women_order$codfam))
+control_couples_1 <- controls_couples %>% left_join(age_gap, by = join_by(codfam == V2))
+control_couples_filter <- control_couples_1 %>% filter(abs(age_gap) <= 18) 
+#eliminate 888 coppie perchè age gap è abbastanza grande da poter esssere padre/figlia o madre/figlio -> assumendo 18 anni come età minima per avere un figlio -> TROVA DIFESA
+women <- control_couples_filter %>% filter(sesso == 2) %>% select(-age_gap)
+women$birth <- 0
+
+men <- control_couples_filter %>% filter(sesso == 1) %>% select(-age_gap)
+men$birth <- 0
+
+rm(no_figli, no_figli_code)
+
+
+rm(list = "data_clean")
+
+
+fathers = mutate(fathers, treat = 1)
+men = mutate (men, treat = 0)
+men_data <- rbind(fathers, men)
+mothers = mutate(mothers, treat = 1)
+women = mutate(women, treat = 0)
+women_data <- rbind(mothers, women)
+
+
+#need to transform datasets to a panel
+women_data <- women_data %>% pivot_longer(
+  cols = starts_with("earnings_"),
+  names_to = "year",
+  names_prefix = "earnings_",
+  values_to = "earnings"
+)
+
+#women_data <- women_data[, c("codfam", "codind", "n", "coef", "sesso", "cittad", "ripart4", "regione", "classeta", "titostud", "eta", "type", "treat", "year", "earnings","birth")]
+
+men_data <- men_data %>% pivot_longer(
+  cols = starts_with("earnings_"),
+  names_to = "year",
+  names_prefix = "earnings_",
+  values_to = "earnings"
+)
+
+#men_data <- men_data[, c("codfam", "codind", "n", "coef", "sesso", "cittad", "ripart4", "regione", "classeta", "titostud", "eta", "type", "treat", "year", "earnings", "birth")]
+
+# PREPARATION OF DATA -----------------------------------------------
+
+women_data <- rowid_to_column(women_data, "index")
+men_data <- rowid_to_column(men_data, "index")
+#agewomen
+age_w <- NULL
+for (i in 1:length(women_data$index)) {
+  if(women_data$year[i] == 2020){
+    age_w[i] = women_data$eta[i] }
+  else if (women_data$year[i] == 2019){
+    
+    age_w[i] = women_data$eta[i]-1}
+  else if (women_data$year[i] == 2018){
+    
+    age_w[i] = women_data$eta[i]-2}
+  else if (women_data$year[i] == 2017){
+    
+    age_w[i] = women_data$eta[i]-3}
+  else if (women_data$year[i] == 2016){
+    
+    age_w[i] = women_data$eta[i]-4}
+  else if(women_data$year[i] == 2015){
+    
+    age_w[i] = women_data$eta[i]-5}
+}
+
+#agemen
+age_m <- NULL
+for (i in 1:length(men_data$index)) {
+  if(men_data$year[i] == 2020){
+    
+    age_m[i] = men_data$eta[i] }
+  else if (men_data$year[i] == 2019){
+    
+    age_m[i] = men_data$eta[i]-1}
+  else if (men_data$year[i] == 2018){
+    
+    age_m[i] = men_data$eta[i]-2}
+  else if (men_data$year[i] == 2017){
+    
+    age_m[i] = men_data$eta[i]-3}
+  else if (men_data$year[i] == 2016){
+    
+    age_m[i] = men_data$eta[i]-4}
+  else if(men_data$year[i] == 2015){
+    
+    age_m[i] = men_data$eta[i]-5}
+}
+
+women_data <- cbind(women_data, age_w)
+men_data <- cbind(men_data, age_m)
+
+
+#STAGGERED DID 
+women_data$year <- as.numeric(women_data$year)
+out_women <- att_gt(yname = "earnings",
+              gname = "birth",
+              idname = "codind",
+              tname = "year",
+              xformla=~ age_w + citt_it + citt_extra_EU +NorthW+ NorthE + Centro+elementari+medie+ diploma+laurea + type_2020_dip  + type_2019_dip  + type_2018_dip  + type_2017_dip  + type_2016_dip + type_2015_dip,
+              control_group="nevertreated",
+              data = women_data,
+              panel = TRUE,
+              base_period="universal",
+              bstrap = TRUE,
+              cband = TRUE
+)
+ggdid(out_women, title = "Estimated ATE on women probability of having any labour earnings grouped by birth year")
+
+
+
+
+
+men_data$year <- as.numeric(men_data$year)
+out_men <- att_gt(yname = "earnings",
+                  gname = "birth",
+                  idname = "codind",
+                  tname = "year",
+                  xformla=~age_m + citt_it + citt_extra_EU +NorthW+ NorthE + Centro +elementari+medie+  diploma+laurea + type_2020_dip  + type_2019_dip  + type_2018_dip  + type_2017_dip  + type_2016_dip + type_2015_dip,
+                  control_group="nevertreated",
+                  data = men_data,
+                  panel = TRUE,
+                  base_period="universal",
+                  bstrap = TRUE,
+                  cband = TRUE
+)
+ggdid(out_men, title = "Estimated ATE on men probability of having any labour earnings grouped by birth year")
+
+#Aggregate by event time
+#"dynamic" (this computes average effects across different lengths of exposure to the treatment and is similar to an "event study"; here the overall effect averages the effect of the treatment across all positive lengths of exposure)
+es_women <- aggte(out_women, type = "dynamic")
+table <- es_women %>% tidy()  
+table<- table[,-(8:9)]%>% kable(caption = "Summary of Dynamic Effects: effect of having a Child on Women probability of having a job",
+   booktabs =T ) %>% kable_styling( latex_options = c("striped","hold_position"),
+                                       full_width = T,
+                                       font_size = NULL,
+                                       row_label_position = "l",
+                                       repeat_header_text = "\\textit{(continued)}",
+                                       repeat_header_method = c("append", "replace"),
+                                       repeat_header_continued = FALSE,
+                                       stripe_color = "gray!6",
+                                       stripe_index = NULL,
+                                       latex_table_env = T,
+                                       protect_latex = TRUE,
+                                       table.envir = "table",
+                                       fixed_thead = FALSE,
+                                       htmltable_class = NULL,
+                                       html_font = NULL,
+                                       wraptable_width = "0pt")
+
+
+table
+ggdid(es_women,title = "Average ATE for Women by time of event")+
+  labs(y= "Average ATE on Women probability to have any labour earnings", x = "Event time")+
+   geom_vline(xintercept = -0.5)+
+  geom_text(aes(x=-0.4, label="First child's birth", y=0), colour="black", angle=90, text=element_text(size=11))
+
+es_men <- aggte(out_men, type = "dynamic")
+ggdid(es_men, title = "Average ATE for men by time of event")+
+  labs(y= "Average ATE on men probability to have any labour earnings", x = "Event time")+
+   geom_vline(xintercept = -0.5)+
+  geom_text(aes(x=-0.4, label="First child's birth", y=0), colour="black", angle=90, text=element_text(size=11))
+overall_att_men <- es_men$overall.att 
+overall_att_women <- es_women$overall.att
+#overall treatment effect 
+
+
+cat("The average effect of having a child on the probability of becoming unemployed for women is:", overall_att_women)
+
+
+cat("The average effect of having a child on the probability of becoming unemployed for men is:", overall_att_men)
+
+
+
+
+
+```
+
+## Log outcome
+
+```{r log main database, message=FALSE, warning=FALSE}
+rm(list = ls())
+
+getwd()
+setwd("C:/Users/emmab/OneDrive/Documenti/ISTA")
+path <- "C:/Users/emmab/OneDrive/Documenti/ISTA"
+#original ISTAT dataset:
+tiro23_datie <- read.delim(file.path(path,"/tiro23_datie.txt"))
+#clean from NA -> from database description they are zeros
+data_clean  <- tiro23_datie %>% 
+  mutate(Y_dispo15  = replace_na(Y_dispo15, 0),
+         Y_dispo16  = replace_na(Y_dispo16, 0),
+         Y_dispo17 = replace_na(Y_dispo17, 0),
+         Y_dispo18 = replace_na(Y_dispo18, 0),
+         Y_dispo19 = replace_na(Y_dispo19, 0),
+         Y_dispo20 = replace_na(Y_dispo20, 0), 
+         y_red_tote15 = replace_na(y_red_tote15, 0),
+         y_red_tote16 = replace_na(y_red_tote16, 0),
+         y_red_tote17 = replace_na(y_red_tote17, 0),
+         y_red_tote18 = replace_na(y_red_tote18, 0),
+         y_red_tote19 = replace_na(y_red_tote19, 0),
+         y_red_tote20 = replace_na(y_red_tote20, 0), 
+         ye1_lav_dip15 = replace_na(ye1_lav_dip15, 0), 
+         ye1_lav_dip16 = replace_na(ye1_lav_dip16, 0), 
+         ye1_lav_dip17 = replace_na(ye1_lav_dip17, 0), 
+         ye1_lav_dip18 = replace_na(ye1_lav_dip18, 0), 
+         ye1_lav_dip19 = replace_na(ye1_lav_dip19, 0), 
+         ye1_lav_dip20 = replace_na(ye1_lav_dip20, 0),
+         ye2_red_pen15 = replace_na(ye2_red_pen15, 0),
+         ye2_red_pen16 = replace_na(ye2_red_pen16, 0),
+         ye2_red_pen17 = replace_na(ye2_red_pen17, 0),
+         ye2_red_pen18 = replace_na(ye2_red_pen18, 0),
+         ye2_red_pen19 = replace_na(ye2_red_pen19, 0),
+         ye2_red_pen20 = replace_na(ye2_red_pen20, 0),
+         ye3_lav_aut15 = replace_na(ye3_lav_aut15, 0),
+         ye3_lav_aut16 = replace_na(ye3_lav_aut16, 0),
+         ye3_lav_aut17 = replace_na(ye3_lav_aut17, 0),
+         ye3_lav_aut18 = replace_na(ye3_lav_aut18, 0),
+         ye3_lav_aut19 = replace_na(ye3_lav_aut19, 0),
+         ye3_lav_aut20 = replace_na(ye3_lav_aut20, 0))
+#missing values in titostud if the person is young (less then 15 y.o.), substitute with 0
+data_clean$titostud[is.na(data_clean$titostud)] <- 0
+
+rm(list = "tiro23_datie")
+
+#built var reddito da lavoro
+data_clean =data_clean %>% mutate(ln_earnings_2015 =  (ye1_lav_dip15 + ye3_lav_aut15),
+                                  earnings_2015 = log(ln_earnings_2015 +1), 
+                                  ln_earnings_2016 =  (ye1_lav_dip16 + ye3_lav_aut16),
+                                  earnings_2016 = log(ln_earnings_2016 +1), 
+                                  ln_earnings_2017 =  (ye1_lav_dip17 + ye3_lav_aut17),
+                                  earnings_2017 = log(ln_earnings_2017 +1), 
+                                  ln_earnings_2018 =  (ye1_lav_dip18 + ye3_lav_aut18),
+                                  earnings_2018 = log(ln_earnings_2018 +1), 
+                                  ln_earnings_2019 =  (ye1_lav_dip19 + ye3_lav_aut19),
+                                  earnings_2019 = log(ln_earnings_2019 +1), 
+                                  ln_earnings_2020 =  (ye1_lav_dip20 + ye3_lav_aut20),
+                                  earnings_2020 = log(ln_earnings_2020 +1),  
+      type_2020_indip = case_when(ye3_lav_aut20 > ye1_lav_dip20 & (ye3_lav_aut20 > 0 | ye1_lav_dip20>0) ~ 1,
+                      TRUE  ~ 0),
+type_2020_dip = case_when(ye3_lav_aut20 < ye1_lav_dip20 & (ye3_lav_aut20 > 0 | ye1_lav_dip20>0) ~ 1,
+                      TRUE  ~ 0),
+type_2019_indip = case_when(ye3_lav_aut19 > ye1_lav_dip19 & (ye3_lav_aut19 > 0 | ye1_lav_dip19>0) ~ 1,
+                      TRUE  ~ 0),
+type_2019_dip = case_when(ye3_lav_aut19 < ye1_lav_dip19 & (ye3_lav_aut19 > 0 | ye1_lav_dip19>0) ~ 1,
+                      TRUE  ~ 0),
+type_2018_indip = case_when(ye3_lav_aut18 > ye1_lav_dip18 & (ye3_lav_aut18 > 0 | ye1_lav_dip18>0) ~ 1,
+                      TRUE  ~ 0),
+type_2018_dip = case_when(ye3_lav_aut18 < ye1_lav_dip18 & (ye3_lav_aut18 > 0 | ye1_lav_dip18>0) ~ 1,
+                      TRUE  ~ 0),
+type_2017_indip = case_when(ye3_lav_aut17 > ye1_lav_dip17 & (ye3_lav_aut17 > 0 | ye1_lav_dip17>0) ~ 1,
+                      TRUE  ~ 0),
+type_2017_dip = case_when(ye3_lav_aut17 < ye1_lav_dip17 & (ye3_lav_aut17 > 0 | ye1_lav_dip17>0) ~ 1,
+                      TRUE  ~ 0),
+type_2016_indip = case_when(ye3_lav_aut16 > ye1_lav_dip16 & (ye3_lav_aut16 > 0 | ye1_lav_dip16>0) ~ 1,
+                      TRUE  ~ 0),
+type_2016_dip = case_when(ye3_lav_aut16 < ye1_lav_dip16 & (ye3_lav_aut16 > 0 | ye1_lav_dip16>0) ~ 1,
+                      TRUE  ~ 0),
+type_2015_indip = case_when(ye3_lav_aut15 > ye1_lav_dip15 & (ye3_lav_aut15 > 0 | ye1_lav_dip15>0) ~ 1,
+                      TRUE  ~ 0),
+type_2015_dip = case_when(ye3_lav_aut15 < ye1_lav_dip15 & (ye3_lav_aut15 > 0 | ye1_lav_dip15>0) ~ 1,
+                      TRUE  ~ 0),
+citt_it   = case_when (cittad  == 1 ~ 1, 
+                       TRUE ~ 0),
+citt_EU   = case_when (cittad  == 2 ~ 1, 
+                       TRUE ~ 0),
+citt_extra_EU   = case_when (cittad  == 3 ~ 1, 
+                       TRUE ~ 0),
+NorthW  = case_when (ripart4 == 1 ~ 1,
+                       TRUE ~ 0),
+NorthE  = case_when (ripart4 == 2 ~ 1,
+                       TRUE ~ 0),
+Centro  = case_when (ripart4 == 3 ~ 1,
+                       TRUE ~ 0),
+Sud  = case_when (ripart4 == 4 ~ 1,
+                       TRUE ~ 0),
+no_titolo  = case_when (titostud == 1 ~ 1,
+                       TRUE ~ 0),
+elementari  = case_when (titostud == 2 ~ 1,
+                       TRUE ~ 0),
+medie = case_when (titostud == 3 ~ 1,
+                       TRUE ~ 0),
+diploma = case_when (titostud == 4 | titostud == 5   ~ 1,
+                       TRUE ~ 0),
+laurea  = case_when (titostud == 6 ~ 1,
+                       TRUE ~ 0))
+#NOTE type = 1 LAV AUT, type = 2 LAV DIP
+
+
+#isolare le famiglie con figli nati dal 2017 al 2020
+figli <- data_clean %>% filter( eta == 1 | eta == 2 | eta == 3)   %>% select(codfam, eta) 
+
+codice <- unique(figli) %>% pull(codfam)
+
+
+#famiglie con figli dai 0 ai 3 anni
+famiglie <- data_clean  %>%  filter(codfam %in% codice) 
+
+
+#trova famiglie con primogenito nella categoria
+
+
+famiglie_nmembers <- famiglie %>% count(codfam) %>% right_join(famiglie)
+
+only_child <- famiglie_nmembers %>% filter(n==3)
+
+
+#famiglie con figli di 4 anni
+#anni4 <-  famiglie_nmembers %>% filter(eta == 4 & n<= 4) %>% select(codfam)
+#codice_anni4 <- unique(anni4) %>% pull(codfam)
+#anni4_fratelli <- famiglie_nmembers %>% filter(codfam %in% codice_anni4) %>% filter(eta <= 2)%>% select(codfam)
+#codice_fratelli4 <- unique(anni4_fratelli) %>% pull(codfam)
+
+
+anni3 <- famiglie_nmembers %>% filter(eta == 3 & n<= 4) %>% select(codfam)
+codice_anni3 <- unique(anni3) %>% pull(codfam)
+anni3_fratelli <- famiglie_nmembers %>% filter(codfam %in% codice_anni3) %>% filter(eta <= 1) %>% select(codfam)
+codice_fratelli3 <- unique(anni3_fratelli) %>% pull(codfam)
+
+anni2 <-famiglie_nmembers %>% filter(eta == 2 & n<= 4) %>% select(codfam)
+codice_anni2 <- unique(anni2) %>% pull(codfam)
+anni2_fratelli <- famiglie_nmembers %>% filter(codfam %in% codice_anni2) %>% filter(eta <= 0)%>% select(codfam)
+codice_fratelli2 <- unique(anni2_fratelli) %>% pull(codfam)
+
+
+
+famiglie_fratelli <-  famiglie_nmembers %>% filter(codfam %in% codice_fratelli3| codfam %in% codice_fratelli2 )
+#not allowing twins
+
+#famiglie count finale
+families <- rbind(only_child, famiglie_fratelli)
+families_code <- families %>% filter((eta>3 & classeta<3) | classeta>6) %>% select(codfam)
+families_code <- unique(families_code) %>% pull(codfam)
+families_final <- families %>%filter(!codfam %in% families_code)
+
+###GOAL: creat variable event_year
+#create children data se
+children <- families_final  %>% filter(classeta ==1) %>% select(codfam, codind, eta) %>% group_by(codfam) %>% slice(which.max(eta))
+children$birth <- 2020 - children$eta -1
+event <- children %>% select(codfam, birth) 
+
+
+#exclude single parents
+couples <- families_final  %>% filter(classeta > 2) %>% group_by (codfam) %>% summarise(sommasesso = sum(sesso)) %>% filter(sommasesso == 3) %>% select(codfam)
+#NB sommasesso == 3 ensures only heterosexuals couples are selected.
+parents_code <- unique(couples) %>% pull(codfam)
+parents <- families_final  %>%  filter(codfam %in% parents_code)
+
+
+mothers <- parents %>% filter(sesso == 2 & classeta > 2) %>% left_join(event)
+
+fathers <- parents %>% filter(sesso == 1 & classeta >2) %>% left_join(event)
+
+treatment_couples <- rbind(mothers, fathers)
+
+cat("Mothers in treatment group :", nrow(mothers) )
+cat("Fathers in treatment group :", nrow(fathers) )
+
+
+rm(list = setdiff(ls(), c("path", "mothers", "fathers", "families_final", "data_clean", "children", "treatment_couples")))
+
+
+#coppie senza figli
+data <- data_clean  %>% count(codfam) %>% right_join(data_clean)
+no_figli <- data  %>%  filter(n == 2 & classeta %in% (3:5)) %>%  filter(eta <= 50) %>% group_by (codfam) %>% summarise(sommasesso = sum(sesso)) %>% filter(sommasesso == 3) %>% select(codfam)
+#NB sommasesso == 3 ensures only heterosexuals couples are selected.
+no_figli_code <- unique(no_figli) %>% pull(codfam)
+controls_couples <- data  %>%  filter(codfam %in% no_figli_code) 
+
+
+women <- controls_couples %>% filter(sesso == 2)
+women$birth <- 0
+
+men <- controls_couples %>% filter(sesso == 1)
+men$birth <- 0
+
+men_order <- men[order(men$codfam),]
+women_order <- women[order(women$codfam),]
+age_gap = men_order$eta - women_order$eta
+age_gap <- data.frame(cbind(age_gap, women_order$codfam))
+control_couples_1 <- controls_couples %>% left_join(age_gap, by = join_by(codfam == V2))
+control_couples_filter <- control_couples_1 %>% filter(abs(age_gap) <= 18) 
+#eliminate 888 coppie perchè age gap è abbastanza grande da poter esssere padre/figlia o madre/figlio -> assumendo 18 anni come età minima per avere un figlio -> TROVA DIFESA
+women <- control_couples_filter %>% filter(sesso == 2) %>% select(-age_gap)
+women$birth <- 0
+
+men <- control_couples_filter %>% filter(sesso == 1) %>% select(-age_gap)
+men$birth <- 0
+
+rm(no_figli, no_figli_code)
+
+rm(list = "data_clean")
+
+
+fathers = mutate(fathers, treat = 1)
+men = mutate (men, treat = 0)
+men_data <- rbind(fathers, men)
+mothers = mutate(mothers, treat = 1)
+women = mutate(women, treat = 0)
+women_data <- rbind(mothers, women)
+
+
+#need to transform datasets to a panel
+women_data <- women_data %>% pivot_longer(
+  cols = starts_with("earnings_"),
+  names_to = "year",
+  names_prefix = "earnings_",
+  values_to = "earnings"
+)
+
+#women_data <- women_data[, c("codfam", "codind", "n", "coef", "sesso", "cittad", "ripart4", "regione", "classeta", "titostud", "eta", "type", "treat", "year", "earnings","birth")]
+
+men_data <- men_data %>% pivot_longer(
+  cols = starts_with("earnings_"),
+  names_to = "year",
+  names_prefix = "earnings_",
+  values_to = "earnings"
+)
+
+#men_data <- men_data[, c("codfam", "codind", "n", "coef", "sesso", "cittad", "ripart4", "regione", "classeta", "titostud", "eta", "type", "treat", "year", "earnings", "birth")]
+
+
+# PREPARATION OF DATA -----------------------------------------------
+
+women_data <- rowid_to_column(women_data, "index")
+men_data <- rowid_to_column(men_data, "index")
+#agewomen
+age_w <- NULL
+for (i in 1:length(women_data$index)) {
+  if(women_data$year[i] == 2020){
+    age_w[i] = women_data$eta[i] }
+  else if (women_data$year[i] == 2019){
+    
+    age_w[i] = women_data$eta[i]-1}
+  else if (women_data$year[i] == 2018){
+    
+    age_w[i] = women_data$eta[i]-2}
+  else if (women_data$year[i] == 2017){
+    
+    age_w[i] = women_data$eta[i]-3}
+  else if (women_data$year[i] == 2016){
+    
+    age_w[i] = women_data$eta[i]-4}
+  else if(women_data$year[i] == 2015){
+    
+    age_w[i] = women_data$eta[i]-5}
+}
+
+#agemen
+age_m <- NULL
+for (i in 1:length(men_data$index)) {
+  if(men_data$year[i] == 2020){
+    
+    age_m[i] = men_data$eta[i] }
+  else if (men_data$year[i] == 2019){
+    
+    age_m[i] = men_data$eta[i]-1}
+  else if (men_data$year[i] == 2018){
+    
+    age_m[i] = men_data$eta[i]-2}
+  else if (men_data$year[i] == 2017){
+    
+    age_m[i] = men_data$eta[i]-3}
+  else if (men_data$year[i] == 2016){
+    
+    age_m[i] = men_data$eta[i]-4}
+  else if(men_data$year[i] == 2015){
+    
+    age_m[i] = men_data$eta[i]-5}
+}
+
+women_data <- cbind(women_data, age_w)
+men_data <- cbind(men_data, age_m)
+
+
+#STAGGERED DID 
+women_data$year <- as.numeric(women_data$year)
+out_women <- att_gt(yname = "earnings",
+              gname = "birth",
+              idname = "codind",
+              tname = "year",
+              xformla=~ age_w + citt_it + citt_extra_EU +NorthW+ NorthE + Centro +elementari+medie+diploma+laurea + type_2020_dip  + type_2019_dip  + type_2018_dip  + type_2017_dip  + type_2016_dip + type_2015_dip,
+              control_group="nevertreated",
+              data = women_data,
+              panel = TRUE,
+              base_period="universal",
+              bstrap = TRUE,
+              cband = TRUE
+)
+ggdid(out_women, title = "Estimated ATE on women log-earnings grouped by birth year")
+
+
+
+men_data$year <- as.numeric(men_data$year)
+out_men <- att_gt(yname = "earnings",
+                  gname = "birth",
+                  idname = "codind",
+                  tname = "year",
+                  xformla=~age_m + citt_it + citt_extra_EU +NorthW+ NorthE + Centro  +elementari+medie+ diploma+laurea+ type_2020_dip  + type_2019_dip  + type_2018_dip  + type_2017_dip  + type_2016_dip + type_2015_dip,
+                  control_group="nevertreated",
+                  data = men_data,
+                  panel = TRUE,
+                  base_period="universal",
+                  bstrap = TRUE,
+                  cband = TRUE
+)
+ggdid(out_men, title = "Estimated ATE on men log earnings grouped by birth year")
+
+#Aggregate by event time
+#"dynamic" (this computes average effects across different lengths of exposure to the treatment and is similar to an "event study"; here the overall effect averages the effect of the treatment across all positive lengths of exposure)
+
+es_women <- aggte(out_women, type = "dynamic")
+table <- es_women %>% tidy()  
+table<- table[,-(8:9)]%>%kable(caption="Summary of Dynamic Effects: effect of having a Child on Women  percentage labour learnings",booktabs = TRUE) %>% kable_styling( latex_options = c("striped","hold_position"),
+                                       full_width = T,
+                                       font_size = NULL,
+                                       row_label_position = "l",
+                                       repeat_header_text = "\\textit{(continued)}",
+                                       repeat_header_method = c("append", "replace"),
+                                       repeat_header_continued = FALSE,
+                                       stripe_color = "gray!6",
+                                       stripe_index = NULL,
+                                       latex_table_env = T,
+                                       protect_latex = TRUE,
+                                       table.envir = "table",
+                                       fixed_thead = FALSE,
+                                       htmltable_class = NULL,
+                                       html_font = NULL,
+                                       wraptable_width = "0pt")
+table
+ggdid(es_women, title = "Average ATE on women log-earnings by time of event")+
+  labs(y= "Average ATE on Women log-earnings", x = "Event time")+
+   geom_vline(xintercept = -0.5)+
+  geom_text(aes(x=-0.4, label="First child's birth", y=0), colour="black", angle=90, text=element_text(size=11))
+
+es_men <- aggte(out_men, type = "dynamic")
+
+ggdid(es_men, title = "Average ATE on women log-earnings by time of event")+
+  labs(y= "Average ATE on Women log-earnings", x = "Event time")+
+   geom_vline(xintercept = -0.5)+
+  geom_text(aes(x=-0.4, label="First child's birth", y=0), colour="black", angle=90, text=element_text(size=11))
+overall_att_men <- es_men$overall.att 
+overall_att_women <- es_women$overall.att
+#overall treatment effect 
+
+ChildPenalty <- (overall_att_men - overall_att_women )
+cat("Child penalty is :", ChildPenalty,"euros per year")
+```
+
+
+## Available income as outcome variable
+
+```{r available income, message=FALSE, warning=FALSE}
+rm(list = ls())
+
+getwd()
+setwd("C:/Users/emmab/OneDrive/Documenti/ISTA")
+path <- "C:/Users/emmab/OneDrive/Documenti/ISTA"
+#original ISTAT dataset:
+tiro23_datie <- read.delim(file.path(path,"/tiro23_datie.txt"))
+#clean from NA -> from database description they are zeros
+data_clean  <- tiro23_datie %>% 
+  mutate(Y_dispo15  = replace_na(Y_dispo15, 0),
+         Y_dispo16  = replace_na(Y_dispo16, 0),
+         Y_dispo17 = replace_na(Y_dispo17, 0),
+         Y_dispo18 = replace_na(Y_dispo18, 0),
+         Y_dispo19 = replace_na(Y_dispo19, 0),
+         Y_dispo20 = replace_na(Y_dispo20, 0), 
+         y_red_tote15 = replace_na(y_red_tote15, 0),
+         y_red_tote16 = replace_na(y_red_tote16, 0),
+         y_red_tote17 = replace_na(y_red_tote17, 0),
+         y_red_tote18 = replace_na(y_red_tote18, 0),
+         y_red_tote19 = replace_na(y_red_tote19, 0),
+         y_red_tote20 = replace_na(y_red_tote20, 0), 
+         ye1_lav_dip15 = replace_na(ye1_lav_dip15, 0), 
+         ye1_lav_dip16 = replace_na(ye1_lav_dip16, 0), 
+         ye1_lav_dip17 = replace_na(ye1_lav_dip17, 0), 
+         ye1_lav_dip18 = replace_na(ye1_lav_dip18, 0), 
+         ye1_lav_dip19 = replace_na(ye1_lav_dip19, 0), 
+         ye1_lav_dip20 = replace_na(ye1_lav_dip20, 0),
+         ye2_red_pen15 = replace_na(ye2_red_pen15, 0),
+         ye2_red_pen16 = replace_na(ye2_red_pen16, 0),
+         ye2_red_pen17 = replace_na(ye2_red_pen17, 0),
+         ye2_red_pen18 = replace_na(ye2_red_pen18, 0),
+         ye2_red_pen19 = replace_na(ye2_red_pen19, 0),
+         ye2_red_pen20 = replace_na(ye2_red_pen20, 0),
+         ye3_lav_aut15 = replace_na(ye3_lav_aut15, 0),
+         ye3_lav_aut16 = replace_na(ye3_lav_aut16, 0),
+         ye3_lav_aut17 = replace_na(ye3_lav_aut17, 0),
+         ye3_lav_aut18 = replace_na(ye3_lav_aut18, 0),
+         ye3_lav_aut19 = replace_na(ye3_lav_aut19, 0),
+         ye3_lav_aut20 = replace_na(ye3_lav_aut20, 0))
+
+#missing values in titostud if the person is young (less then 15 y.o.), substitute with 0
+data_clean$titostud[is.na(data_clean$titostud)] <- 0
+
+rm(list = "tiro23_datie")
+
+#built var reddito da lavoro
+data_clean =data_clean %>% mutate(income_2015 = Y_dispo15, 
+                                                income_2016 = Y_dispo16,
+                                                income_2017 = Y_dispo17,
+                                                income_2018 = Y_dispo18,
+                                                income_2019 = Y_dispo19,
+                                                income_2020 = Y_dispo20, 
+type_2020_indip = case_when(ye3_lav_aut20 > ye1_lav_dip20 & (ye3_lav_aut20 > 0 | ye1_lav_dip20>0) ~ 1,
+                      TRUE  ~ 0),
+type_2020_dip = case_when(ye3_lav_aut20 < ye1_lav_dip20 & (ye3_lav_aut20 > 0 | ye1_lav_dip20>0) ~ 1,
+                      TRUE  ~ 0),
+type_2019_indip = case_when(ye3_lav_aut19 > ye1_lav_dip19 & (ye3_lav_aut19 > 0 | ye1_lav_dip19>0) ~ 1,
+                      TRUE  ~ 0),
+type_2019_dip = case_when(ye3_lav_aut19 < ye1_lav_dip19 & (ye3_lav_aut19 > 0 | ye1_lav_dip19>0) ~ 1,
+                      TRUE  ~ 0),
+type_2018_indip = case_when(ye3_lav_aut18 > ye1_lav_dip18 & (ye3_lav_aut18 > 0 | ye1_lav_dip18>0) ~ 1,
+                      TRUE  ~ 0),
+type_2018_dip = case_when(ye3_lav_aut18 < ye1_lav_dip18 & (ye3_lav_aut18 > 0 | ye1_lav_dip18>0) ~ 1,
+                      TRUE  ~ 0),
+type_2017_indip = case_when(ye3_lav_aut17 > ye1_lav_dip17 & (ye3_lav_aut17 > 0 | ye1_lav_dip17>0) ~ 1,
+                      TRUE  ~ 0),
+type_2017_dip = case_when(ye3_lav_aut17 < ye1_lav_dip17 & (ye3_lav_aut17 > 0 | ye1_lav_dip17>0) ~ 1,
+                      TRUE  ~ 0),
+type_2016_indip = case_when(ye3_lav_aut16 > ye1_lav_dip16 & (ye3_lav_aut16 > 0 | ye1_lav_dip16>0) ~ 1,
+                      TRUE  ~ 0),
+type_2016_dip = case_when(ye3_lav_aut16 < ye1_lav_dip16 & (ye3_lav_aut16 > 0 | ye1_lav_dip16>0) ~ 1,
+                      TRUE  ~ 0),
+type_2015_indip = case_when(ye3_lav_aut15 > ye1_lav_dip15 & (ye3_lav_aut15 > 0 | ye1_lav_dip15>0) ~ 1,
+                      TRUE  ~ 0),
+type_2015_dip = case_when(ye3_lav_aut15 < ye1_lav_dip15 & (ye3_lav_aut15 > 0 | ye1_lav_dip15>0) ~ 1,
+                      TRUE  ~ 0),
+citt_it   = case_when (cittad  == 1 ~ 1, 
+                       TRUE ~ 0),
+citt_EU   = case_when (cittad  == 2 ~ 1, 
+                       TRUE ~ 0),
+citt_extra_EU   = case_when (cittad  == 3 ~ 1, 
+                       TRUE ~ 0),
+NorthW  = case_when (ripart4 == 1 ~ 1,
+                       TRUE ~ 0),
+NorthE  = case_when (ripart4 == 2 ~ 1,
+                       TRUE ~ 0),
+Centro  = case_when (ripart4 == 3 ~ 1,
+                       TRUE ~ 0),
+Sud  = case_when (ripart4 == 4 ~ 1,
+                       TRUE ~ 0),
+no_titolo  = case_when (titostud == 1 ~ 1,
+                       TRUE ~ 0),
+elementari  = case_when (titostud == 2 ~ 1,
+                       TRUE ~ 0),
+medie = case_when (titostud == 3 ~ 1,
+                       TRUE ~ 0),
+diploma = case_when (titostud == 4 | titostud == 5   ~ 1,
+                       TRUE ~ 0),
+laurea  = case_when (titostud == 6 ~ 1,
+                       TRUE ~ 0))
+#NOTE type = 1 LAV AUT, type = 2 LAV DIP
+
+#isolare le famiglie con figli nati dal 2017 al 2020
+figli <- data_clean %>%filter( eta == 1 | eta == 2 | eta == 3)   %>% select(codfam, eta) 
+
+codice <- unique(figli) %>% pull(codfam)
+
+
+#famiglie con figli dai 0 ai 3 anni
+famiglie <- data_clean  %>%  filter(codfam %in% codice) 
+
+
+#trova famiglie con primogenito nella categoria
+
+
+famiglie_nmembers <- famiglie %>% count(codfam) %>% right_join(famiglie)
+
+only_child <- famiglie_nmembers %>% filter(n==3)
+
+
+#famiglie con figli di 4 anni
+#anni4 <-  famiglie_nmembers %>% filter(eta == 4 & n<= 4) %>% select(codfam)
+#codice_anni4 <- unique(anni4) %>% pull(codfam)
+#anni4_fratelli <- famiglie_nmembers %>% filter(codfam %in% codice_anni4) %>% filter(eta <= 2)%>% select(codfam)
+#codice_fratelli4 <- unique(anni4_fratelli) %>% pull(codfam)
+
+
+anni3 <- famiglie_nmembers %>% filter(eta == 3 & n<= 4) %>% select(codfam)
+codice_anni3 <- unique(anni3) %>% pull(codfam)
+anni3_fratelli <- famiglie_nmembers %>% filter(codfam %in% codice_anni3) %>% filter(eta <= 1) %>% select(codfam)
+codice_fratelli3 <- unique(anni3_fratelli) %>% pull(codfam)
+
+anni2 <-famiglie_nmembers %>% filter(eta == 2 & n<= 4) %>% select(codfam)
+codice_anni2 <- unique(anni2) %>% pull(codfam)
+anni2_fratelli <- famiglie_nmembers %>% filter(codfam %in% codice_anni2) %>% filter(eta <= 0)%>% select(codfam)
+codice_fratelli2 <- unique(anni2_fratelli) %>% pull(codfam)
+
+
+
+famiglie_fratelli <-  famiglie_nmembers %>% filter(codfam %in% codice_fratelli3| codfam %in% codice_fratelli2 )
+#not allowing twins
+
+#famiglie count finale
+families <- rbind(only_child, famiglie_fratelli)
+families_code <- families %>% filter((eta>3 & classeta<3) | classeta>6) %>% select(codfam)
+families_code <- unique(families_code) %>% pull(codfam)
+families_final <- families %>%filter(!codfam %in% families_code)
+
+###GOAL: creat variable event_year
+#create children data se
+children <- families_final  %>% filter(classeta ==1) %>% select(codfam, codind, eta) %>% group_by(codfam) %>% slice(which.max(eta))
+children$birth <- 2020 - children$eta -1
+event <- children %>% select(codfam, birth) 
+
+
+#exclude single parents
+couples <- families_final  %>% filter(classeta > 2) %>% group_by (codfam) %>% summarise(sommasesso = sum(sesso)) %>% filter(sommasesso == 3) %>% select(codfam)
+#NB sommasesso == 3 ensures only heterosexuals couples are selected.
+parents_code <- unique(couples) %>% pull(codfam)
+parents <- families_final  %>%  filter(codfam %in% parents_code)
+
+
+mothers <- parents %>% filter(sesso == 2 & classeta > 2) %>% left_join(event)
+
+fathers <- parents %>% filter(sesso == 1 & classeta >2) %>% left_join(event)
+
+treatment_couples <- rbind(mothers, fathers)
+
+cat("Mothers in treatment group :", nrow(mothers) )
+cat("Fathers in treatment group :", nrow(fathers) )
+
+
+rm(list = setdiff(ls(), c("path", "mothers", "fathers", "families_final", "data_clean", "children", "treatment_couples")))
+
+
+#coppie senza figli
+data <- data_clean  %>% count(codfam) %>% right_join(data_clean)
+no_figli <- data  %>%  filter(n == 2 & classeta %in% (3:5)) %>%  filter(eta <= 50) %>% group_by (codfam) %>% summarise(sommasesso = sum(sesso)) %>% filter(sommasesso == 3) %>% select(codfam)
+#NB sommasesso == 3 ensures only heterosexuals couples are selected.
+no_figli_code <- unique(no_figli) %>% pull(codfam)
+controls_couples <- data  %>%  filter(codfam %in% no_figli_code) 
+
+
+women <- controls_couples %>% filter(sesso == 2)
+women$birth <- 0
+
+men <- controls_couples %>% filter(sesso == 1)
+men$birth <- 0
+
+men_order <- men[order(men$codfam),]
+women_order <- women[order(women$codfam),]
+age_gap = men_order$eta - women_order$eta
+age_gap <- data.frame(cbind(age_gap, women_order$codfam))
+control_couples_1 <- controls_couples %>% left_join(age_gap, by = join_by(codfam == V2))
+control_couples_filter <- control_couples_1 %>% filter(abs(age_gap) <= 18) 
+#eliminate 888 coppie perchè age gap è abbastanza grande da poter esssere padre/figlia o madre/figlio -> assumendo 18 anni come età minima per avere un figlio -> TROVA DIFESA
+women <- control_couples_filter %>% filter(sesso == 2) %>% select(-age_gap)
+women$birth <- 0
+
+men <- control_couples_filter %>% filter(sesso == 1) %>% select(-age_gap)
+men$birth <- 0
+
+rm(no_figli, no_figli_code)
+
+
+rm(list = "data_clean")
+
+
+fathers = mutate(fathers, treat = 1)
+men = mutate (men, treat = 0)
+men_data <- rbind(fathers, men)
+mothers = mutate(mothers, treat = 1)
+women = mutate(women, treat = 0)
+women_data <- rbind(mothers, women)
+
+
+#need to transform datasets to a panel
+women_data <- women_data %>% pivot_longer(
+  cols = starts_with("income_"),
+  names_to = "year",
+  names_prefix = "income_",
+  values_to = "income"
+)
+
+#women_data <- women_data[, c("codfam", "codind", "n", "coef", "sesso", "cittad", "ripart4", "regione", "classeta", "titostud", "eta", "type", "treat", "year", "income","birth")]
+
+men_data <- men_data %>% pivot_longer(
+  cols = starts_with("income_"),
+  names_to = "year",
+  names_prefix = "income_",
+  values_to = "income"
+)
+
+#men_data <- men_data[, c("codfam", "codind", "n", "coef", "sesso", "cittad", "ripart4", "regione", "classeta", "titostud", "eta", "type", "treat", "year", "income", "birth")]
+
+
+# PREPARATION OF DATA -----------------------------------------------
+
+women_data <- rowid_to_column(women_data, "index")
+men_data <- rowid_to_column(men_data, "index")
+#agewomen
+age_w <- NULL
+for (i in 1:length(women_data$index)) {
+  if(women_data$year[i] == 2020){
+    age_w[i] = women_data$eta[i] }
+  else if (women_data$year[i] == 2019){
+    
+    age_w[i] = women_data$eta[i]-1}
+  else if (women_data$year[i] == 2018){
+    
+    age_w[i] = women_data$eta[i]-2}
+  else if (women_data$year[i] == 2017){
+    
+    age_w[i] = women_data$eta[i]-3}
+  else if (women_data$year[i] == 2016){
+    
+    age_w[i] = women_data$eta[i]-4}
+  else if(women_data$year[i] == 2015){
+    
+    age_w[i] = women_data$eta[i]-5}
+}
+
+#agemen
+age_m <- NULL
+for (i in 1:length(men_data$index)) {
+  if(men_data$year[i] == 2020){
+    
+    age_m[i] = men_data$eta[i] }
+  else if (men_data$year[i] == 2019){
+    
+    age_m[i] = men_data$eta[i]-1}
+  else if (men_data$year[i] == 2018){
+    
+    age_m[i] = men_data$eta[i]-2}
+  else if (men_data$year[i] == 2017){
+    
+    age_m[i] = men_data$eta[i]-3}
+  else if (men_data$year[i] == 2016){
+    
+    age_m[i] = men_data$eta[i]-4}
+  else if(men_data$year[i] == 2015){
+    
+    age_m[i] = men_data$eta[i]-5}
+}
+
+women_data <- cbind(women_data, age_w)
+men_data <- cbind(men_data, age_m)
+
+
+#STAGGERED DID 
+women_data$year <- as.numeric(women_data$year)
+out_women <- att_gt(yname = "income",
+              gname = "birth",
+              idname = "codind",
+              tname = "year",
+              xformla=~ ~ age_w + citt_it + citt_extra_EU +NorthW+ NorthE + Centro  +elementari+medie+  diploma+laurea + type_2020_dip  + type_2019_dip  + type_2018_dip  + type_2017_dip  + type_2016_dip + type_2015_dip,
+              control_group="nevertreated",
+              data = women_data,
+              panel = TRUE,
+              base_period="universal",
+              bstrap = TRUE,
+              cband = TRUE
+)
+ggdid(out_women, title = "Estimated ATE on women available income grouped by birth year")
+
+
+
+
+men_data$year <- as.numeric(men_data$year)
+out_men <- att_gt(yname = "income",
+                  gname = "birth",
+                  idname = "codind",
+                  tname = "year",
+                  xformla=~ age_m + citt_it + citt_extra_EU +NorthW+ NorthE + Centro+elementari+medie+  diploma+laurea + type_2020_dip  + type_2019_dip  + type_2018_dip  + type_2017_dip  + type_2016_dip + type_2015_dip,
+                  control_group="nevertreated",
+                  data = men_data,
+                  panel = TRUE,
+                  base_period="universal",
+                  bstrap = TRUE,
+                  cband = TRUE
+)
+ggdid(out_men, title = "Estimated ATE on men available income grouped by birth year")
+
+#Aggregate by event time
+#"dynamic" (this computes average effects across different lengths of exposure to the treatment and is similar to an "event study"; here the overall effect averages the effect of the treatment across all positive lengths of exposure)
+es_women <- aggte(out_women, type = "dynamic")
+table <- es_women %>% tidy()  
+table<- table[,-(8:9)]%>%kable(caption="Summary of Dynamic Effects: effect of having a Child on Women  available income",booktabs = TRUE)%>% kable_styling( latex_options = c("striped","hold_position"),
+                                       full_width = T,
+                                       font_size = NULL,
+                                       row_label_position = "l",
+                                       repeat_header_text = "\\textit{(continued)}",
+                                       repeat_header_method = c("append", "replace"),
+                                       repeat_header_continued = FALSE,
+                                       stripe_color = "gray!6",
+                                       stripe_index = NULL,
+                                       latex_table_env = T,
+                                       protect_latex = TRUE,
+                                       table.envir = "table",
+                                       fixed_thead = FALSE,
+                                       htmltable_class = NULL,
+                                       html_font = NULL,
+                                       wraptable_width = "0pt")
+table
+
+ggdid(es_women, title = "Average ATE on women available income by time of event")+
+  labs(y= "Average ATE on women available income (in euros)", x = "Event time")+
+   geom_vline(xintercept = -0.5)+
+  geom_text(aes(x=-0.4, label="First child's birth", y=0), colour="black", angle=90, text=element_text(size=11))
+
+es_men <- aggte(out_men, type = "dynamic")
+
+ggdid(es_men, title = "Average ATE on men available income by time of event")+
+  labs(y= "Average ATE on men available income (in euros)", x = "Event time")+
+   geom_vline(xintercept = -0.5)+
+  geom_text(aes(x=-0.4, label="First child's birth", y=0), colour="black", angle=90, text=element_text(size=11))
+overall_att_men <- es_men$overall.att 
+overall_att_women <- es_women$overall.att
+#overall treatment effect 
+
+```
+
+### Impact on Total Family income of having a Child
+
+```{r Total Family income  available, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+treat <- mothers %>% full_join(fathers,  suffix = c(".w", ".m"), by=join_by(codfam)) %>%
+  mutate(family_impact_2015 = income_2015.w + income_2015.m, 
+         family_impact_2016 = income_2016.w + income_2016.m, 
+         family_impact_2017 = income_2017.w + income_2017.m, 
+         family_impact_2018 = income_2018.w + income_2018.m, 
+         family_impact_2019 = income_2019.w + income_2019.m, 
+         family_impact_2020 = income_2020.w + income_2020.m, )%>%
+      rename(birth = birth.m, treat = treat.m, n = n.m)
+treatm_impact <- treat[, c("codfam", "codind.m", "coef.m", "sesso.m", "classeta.m", "no_titolo.m", "elementari.m","medie.m","diploma.m","laurea.m", "eta.m",  "citt_it.m","citt_EU.m","citt_extra_EU.m","NorthW.m","NorthE.m","Centro.m","Sud.m", "type_2020_dip.m","type_2019_dip.m","type_2018_dip.m","type_2017_dip.m","type_2016_dip.m","type_2015_dip.m", "codind.w","coef.w", "sesso.w", "classeta.w", "no_titolo.w", "elementari.w","medie.w","diploma.w","laurea.w", "eta.w", "citt_it.w","citt_EU.w","citt_extra_EU.w","NorthW.w","NorthE.w","Centro.w","Sud.w", "type_2020_dip.w","type_2019_dip.w","type_2018_dip.w","type_2017_dip.w","type_2016_dip.w","type_2015_dip.w","n","treat","birth","family_impact_2015","family_impact_2016","family_impact_2017","family_impact_2018","family_impact_2019","family_impact_2020")]
+
+treatm_impact <- treatm_impact %>% pivot_longer(
+    cols = starts_with("family_impact_"),
+    names_to = "year",
+    names_prefix = "family_impact_",
+    values_to = "family_impact_"
+  )
+
+
+contr_impact <- women %>% full_join(men,  suffix = c(".w", ".m"), by=join_by(codfam)) %>%
+  mutate(family_impact_2015 = income_2015.w + income_2015.m, 
+         family_impact_2016 = income_2016.w + income_2016.m, 
+         family_impact_2017 = income_2017.w + income_2017.m, 
+         family_impact_2018 = income_2018.w + income_2018.m, 
+         family_impact_2019 = income_2019.w + income_2019.m, 
+         family_impact_2020 = income_2020.w + income_2020.m, )%>%
+      rename(birth = birth.m, treat = treat.m, n = n.m)
+control_impact <- contr_impact[, c("codfam", "codind.m", "coef.m", "sesso.m", "classeta.m", "no_titolo.m", "elementari.m","medie.m","diploma.m","laurea.m", "eta.m",  "citt_it.m","citt_EU.m","citt_extra_EU.m","NorthW.m","NorthE.m","Centro.m","Sud.m", "type_2020_dip.m","type_2019_dip.m","type_2018_dip.m","type_2017_dip.m","type_2016_dip.m","type_2015_dip.m", "codind.w","coef.w", "sesso.w", "classeta.w", "no_titolo.w", "elementari.w","medie.w","diploma.w","laurea.w", "eta.w", "citt_it.w","citt_EU.w","citt_extra_EU.w","NorthW.w","NorthE.w","Centro.w","Sud.w", "type_2020_dip.w","type_2019_dip.w","type_2018_dip.w","type_2017_dip.w","type_2016_dip.w","type_2015_dip.w","n","treat","birth","family_impact_2015","family_impact_2016","family_impact_2017","family_impact_2018","family_impact_2019","family_impact_2020")]
+
+control_impact <- control_impact %>% pivot_longer(
+    cols = starts_with("family_impact_"),
+    names_to = "year",
+    names_prefix = "family_impact_",
+    values_to = "family_impact_"
+  )
+
+family_sample_impact <- rbind(treatm_impact, control_impact)
+
+```
+
+```{r family impactavailable, echo=FALSE, message=FALSE, warning=FALSE}
+# PREPARATION OF DATA -----------------------------------------------
+
+family_sample_impact <- rowid_to_column(family_sample_impact, "index")
+#agewomen
+age_w <- NULL
+for (i in 1:length(family_sample_impact$index)) {
+  if(family_sample_impact$year[i] == 2020){
+    age_w[i] = family_sample_impact$eta.w[i] }
+  else if (family_sample_impact$year[i] == 2019){
+    
+    age_w[i] = family_sample_impact$eta.w[i]-1}
+  else if (family_sample_impact$year[i] == 2018){
+    
+    age_w[i] = family_sample_impact$eta.w[i]-2}
+  else if (family_sample_impact$year[i] == 2017){
+    
+    age_w[i] = family_sample_impact$eta.w[i]-3}
+  else if (family_sample_impact$year[i] == 2016){
+    
+    age_w[i] = family_sample_impact$eta.w[i]-4}
+  else if(family_sample_impact$year[i] == 2015){
+    
+    age_w[i] = family_sample_impact$eta.w[i]-5}
+}
+
+#agemen
+age_m <- NULL
+for (i in 1:length(family_sample_impact$index)) {
+  if(family_sample_impact$year[i] == 2020){
+    age_m[i] = family_sample_impact$eta.m[i] }
+  else if (family_sample_impact$year[i] == 2019){
+    
+    age_m[i] = family_sample_impact$eta.m[i]-1}
+  else if (family_sample_impact$year[i] == 2018){
+    
+    age_m[i] = family_sample_impact$eta.m[i]-2}
+  else if (family_sample_impact$year[i] == 2017){
+    
+    age_m[i] = family_sample_impact$eta.m[i]-3}
+  else if (family_sample_impact$year[i] == 2016){
+    
+    age_m[i] = family_sample_impact$eta.m[i]-4}
+  else if(family_sample_impact$year[i] == 2015){
+    
+    age_m[i] = family_sample_impact$eta.m[i]-5}
+}
+
+
+family_sample_impact <- cbind(family_sample_impact, age_m, age_w)
+
+
+#STAGGERED DID 
+family_sample_impact$year <- as.numeric(family_sample_impact$year)
+out_family <- att_gt(yname = "family_impact_",
+              gname = "birth",
+              idname = "codfam",
+              tname = "year",
+              xformla=~ age_w + age_m,
+              control_group="nevertreated",
+              data = family_sample_impact,
+              panel = TRUE,
+              base_period="universal",
+              bstrap = TRUE,
+              cband = TRUE
+)
+ggdid(out_family, title = "Avereage Effect for Women grouped by birth year")
+
+
+
+
+#Aggregate by event time
+#"dynamic" (this computes average effects across different lengths of exposure to the treatment and is similar to an "event study"; here the overall effect averages the effect of the treatment across all positive lengths of exposure)
+es_family <- aggte(out_family, type = "dynamic")
+table <- es_family %>% tidy()  
+table<- table[,-(8:9)]%>%kable(caption="Summary of Dynamic Effects: effect of having a Child on Total family income",booktabs = TRUE)%>% kable_styling( latex_options = c("striped","hold_position"),
+                                       full_width = T,
+                                       font_size = NULL,
+                                       row_label_position = "l",
+                                       repeat_header_text = "\\textit{(continued)}",
+                                       repeat_header_method = c("append", "replace"),
+                                       repeat_header_continued = FALSE,
+                                       stripe_color = "gray!6",
+                                       stripe_index = NULL,
+                                       latex_table_env = T,
+                                       protect_latex = TRUE,
+                                       table.envir = "table",
+                                       fixed_thead = FALSE,
+                                       htmltable_class = NULL,
+                                       html_font = NULL,
+                                       wraptable_width = "0pt")
+table
+
+ggdid(es_family,  title = "Avereage Effect for Families by time of event")+
+   geom_vline(xintercept = -0.5)+
+  geom_text(aes(x=-0.4, label="First child's birth", y=0), colour="black", angle=90, text=element_text(size=11))
+
+overall_att_family <- es_family$overall.att
+
+
+
+```
+
+We observe that having a child in general impacts negatively the family income: this could reflect based on the previous analysis that the negative impact on the mothers cannot be outweigh by an increased investment in the work by the fathers and that the whole family suffers from the Child Penalty.
+
+### Within family Child Penalty
+
+Find the effect of having a child on the difference of wages of men and women within families.
+
+```{r Difference whithin Families income available, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+treat <- mothers %>% full_join(fathers,  suffix = c(".w", ".m"), by=join_by(codfam)) %>%
+  mutate(family_penalty_2015 = income_2015.m - income_2015.w, 
+         family_penalty_2016 = income_2016.m - income_2016.w, 
+         family_penalty_2017 = income_2017.m - income_2017.w, 
+         family_penalty_2018 = income_2018.m - income_2018.w, 
+         family_penalty_2019 = income_2019.m - income_2019.w, 
+         family_penalty_2020 = income_2020.m - income_2020.w, )%>%
+      rename(birth = birth.m, treat = treat.m, n = n.m)
+treatm_penalty <- treat[, c("codfam", "codind.m", "coef.m", "sesso.m", "classeta.m", "no_titolo.m", "elementari.m","medie.m","diploma.m","laurea.m", "eta.m",  "citt_it.m","citt_EU.m","citt_extra_EU.m","NorthW.m","NorthE.m","Centro.m","Sud.m", "type_2020_dip.m","type_2019_dip.m","type_2018_dip.m","type_2017_dip.m","type_2016_dip.m","type_2015_dip.m", "codind.w","coef.w", "sesso.w", "classeta.w", "no_titolo.w", "elementari.w","medie.w","diploma.w","laurea.w", "eta.w", "citt_it.w","citt_EU.w","citt_extra_EU.w","NorthW.w","NorthE.w","Centro.w","Sud.w", "type_2020_dip.w","type_2019_dip.w","type_2018_dip.w","type_2017_dip.w","type_2016_dip.w","type_2015_dip.w","n","treat","birth","family_penalty_2015","family_penalty_2016","family_penalty_2017","family_penalty_2018","family_penalty_2019","family_penalty_2020")]
+
+treatm_penalty  <- treatm_penalty  %>% pivot_longer(
+    cols = starts_with("family_penalty_"),
+    names_to = "year",
+    names_prefix = "family_penalty_",
+    values_to = "family_penalty_"
+  )
+
+
+contr_penalty <- women %>% full_join(men,  suffix = c(".w", ".m"), by=join_by(codfam)) %>%
+  mutate(family_penalty_2015 = income_2015.m - income_2015.w, 
+         family_penalty_2016 = income_2016.m - income_2016.w, 
+         family_penalty_2017 = income_2017.m - income_2017.w, 
+         family_penalty_2018 = income_2018.m - income_2018.w, 
+         family_penalty_2019 = income_2019.m - income_2019.w, 
+         family_penalty_2020 = income_2020.m - income_2020.w, )%>%
+      rename(birth = birth.m, treat = treat.m, n = n.m)
+control_penalty <- contr_penalty[, c("codfam", "codind.m", "coef.m", "sesso.m", "classeta.m", "no_titolo.m", "elementari.m","medie.m","diploma.m","laurea.m", "eta.m",  "citt_it.m","citt_EU.m","citt_extra_EU.m","NorthW.m","NorthE.m","Centro.m","Sud.m", "type_2020_dip.m","type_2019_dip.m","type_2018_dip.m","type_2017_dip.m","type_2016_dip.m","type_2015_dip.m", "codind.w","coef.w", "sesso.w", "classeta.w", "no_titolo.w", "elementari.w","medie.w","diploma.w","laurea.w", "eta.w", "citt_it.w","citt_EU.w","citt_extra_EU.w","NorthW.w","NorthE.w","Centro.w","Sud.w", "type_2020_dip.w","type_2019_dip.w","type_2018_dip.w","type_2017_dip.w","type_2016_dip.w","type_2015_dip.w","n","treat","birth","family_penalty_2015","family_penalty_2016","family_penalty_2017","family_penalty_2018","family_penalty_2019","family_penalty_2020")]
+
+
+control_penalty <- control_penalty %>% pivot_longer(
+    cols = starts_with("family_penalty_"),
+    names_to = "year",
+    names_prefix = "family_penalty_",
+    values_to = "family_penalty_"
+  )
+
+family_sample_penalty <- rbind(treatm_penalty, control_penalty)
+
+```
+
+```{r DiD staggerd family child penalty income available, echo=FALSE, message=FALSE, warning=FALSE}
+# PREPARATION OF DATA -----------------------------------------------
+
+family_sample_penalty <- rowid_to_column(family_sample_penalty, "index")
+#agewomen
+age_w <- NULL
+for (i in 1:length(family_sample_penalty$index)) {
+  if(family_sample_penalty$year[i] == 2020){
+    age_w[i] = family_sample_penalty$eta.w[i] }
+  else if (family_sample_penalty$year[i] == 2019){
+    
+    age_w[i] = family_sample_penalty$eta.w[i]-1}
+  else if (family_sample_penalty$year[i] == 2018){
+    
+    age_w[i] = family_sample_penalty$eta.w[i]-2}
+  else if (family_sample_penalty$year[i] == 2017){
+    
+    age_w[i] = family_sample_penalty$eta.w[i]-3}
+  else if (family_sample_penalty$year[i] == 2016){
+    
+    age_w[i] = family_sample_penalty$eta.w[i]-4}
+  else if(family_sample_penalty$year[i] == 2015){
+    
+    age_w[i] = family_sample_penalty$eta.w[i]-5}
+}
+
+#agemen
+age_m <- NULL
+for (i in 1:length(family_sample_penalty$index)) {
+  if(family_sample_penalty$year[i] == 2020){
+    age_m[i] = family_sample_penalty$eta.m[i] }
+  else if (family_sample_penalty$year[i] == 2019){
+    
+    age_m[i] = family_sample_penalty$eta.m[i]-1}
+  else if (family_sample_penalty$year[i] == 2018){
+    
+    age_m[i] = family_sample_penalty$eta.m[i]-2}
+  else if (family_sample_penalty$year[i] == 2017){
+    
+    age_m[i] = family_sample_penalty$eta.m[i]-3}
+  else if (family_sample_penalty$year[i] == 2016){
+    
+    age_m[i] = family_sample_penalty$eta.m[i]-4}
+  else if(family_sample_penalty$year[i] == 2015){
+    
+    age_m[i] = family_sample_penalty$eta.m[i]-5}
+}
+
+
+family_sample_penalty <- cbind(family_sample_penalty, age_m, age_w)
+
+
+#STAGGERED DID 
+family_sample_penalty$year <- as.numeric(family_sample_penalty$year)
+out_family <- att_gt(yname = "family_penalty_",
+              gname = "birth",
+              idname = "codfam",
+              tname = "year",
+              xformla=~ age_w + age_m,
+              control_group="nevertreated",
+              data = family_sample_penalty,
+              panel = TRUE,
+              base_period="universal",
+              bstrap = TRUE,
+              cband = TRUE
+)
+ggdid(out_family, title = "Avereage Effect for Women grouped by birth year")
+
+
+
+#Aggregate by event time
+#"dynamic" (this computes average effects across different lengths of exposure to the treatment and is similar to an "event study"; here the overall effect averages the effect of the treatment across all positive lengths of exposure)
+es_family <- aggte(out_family, type = "dynamic")
+table <- es_family %>% tidy()  
+table<- table[,-(8:9)]%>%kable(caption="Summary of Dynamic Effects: effect of having a Child on Within Family Income difference",booktabs = TRUE)%>% kable_styling( latex_options = c("striped","hold_position"),
+                                       full_width = T,
+                                       font_size = NULL,
+                                       row_label_position = "l",
+                                       repeat_header_text = "\\textit{(continued)}",
+                                       repeat_header_method = c("append", "replace"),
+                                       repeat_header_continued = FALSE,
+                                       stripe_color = "gray!6",
+                                       stripe_index = NULL,
+                                       latex_table_env = T,
+                                       protect_latex = TRUE,
+                                       table.envir = "table",
+                                       fixed_thead = FALSE,
+                                       htmltable_class = NULL,
+                                       html_font = NULL,
+                                       wraptable_width = "0pt")
+table
+
+ggdid(es_family,  title = "Avereage Effect for Families by time of event")+
+   geom_vline(xintercept = -0.5)+
+geom_text(aes(x=-0.4, label="First child's birth", y=0), colour="black", angle=90, text=element_text(size=11))
+
+```
